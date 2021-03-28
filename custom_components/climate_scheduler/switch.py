@@ -128,7 +128,7 @@ async def async_setup_platform(
 
 ComputedClimateData = namedtuple(
     "ComputedClimateData",
-    ["hvac_mode", "fan_mode", "swing_mode", "min_temperature", "max_temperature"],
+    ["hvac_mode", "fan_mode", "swing_mode", "min_temp", "max_temp"],
 )
 
 
@@ -292,6 +292,40 @@ class ClimateSchedulerSwitch(SwitchEntity, RestoreEntity):
         )
 
 
+class ClimateShedulerSchedule:
+    def __init__(self, config: dict) -> None:
+        self._time: timedelta = config.get(CONF_SCHEDULE_TIME)
+        self._hvac_mode: Optional[str] = config.get(CONF_SCHEDULE_HVAC)
+        self._fan_mode: Optional[str] = config.get(CONF_SCHEDULE_FAN_MODE)
+        self._swing_mode: Optional[str] = config.get(CONF_SCHEDULE_SWING_MODE)
+        self._min_temp: Optional[int] = config.get(CONF_SCHEDULE_MIN_TEMP)
+        self._max_temp: Optional[int] = config.get(CONF_SCHEDULE_MAX_TEMP)
+
+    @property
+    def time(self) -> timedelta:
+        return self._time
+
+    @property
+    def hvac_mode(self) -> Optional[str]:
+        return self._hvac_mode
+
+    @property
+    def fan_mode(self) -> Optional[str]:
+        return self._fan_mode
+
+    @property
+    def swing_mode(self) -> Optional[str]:
+        return self._swing_mode
+
+    @property
+    def min_temp(self) -> Optional[float]:
+        return self._min_temp
+
+    @property
+    def max_temp(self) -> Optional[float]:
+        return self._max_tem
+
+
 class ClimateSchedulerProfile:
     def __init__(self, config: dict) -> None:
         self._id: str = config.get(CONF_PROFILE_ID)
@@ -331,7 +365,9 @@ class ClimateSchedulerProfile:
             schedule.max_temp if schedule.max_temp else self._default_max_temp,
         )
 
-    def _find_schedule(self, time_of_day: timedelta) -> Optional[ComputedClimateData]:
+    def _find_schedule(
+        self, time_of_day: timedelta
+    ) -> Optional[ClimateShedulerSchedule]:
         if len(self._schedules) == 0:
             return None
 
@@ -358,37 +394,3 @@ class ClimateSchedulerProfile:
                 return schedule
 
         return None
-
-
-class ClimateShedulerSchedule:
-    def __init__(self, config: dict) -> None:
-        self._time: timedelta = config.get(CONF_SCHEDULE_TIME)
-        self._hvac_mode: Optional[str] = config.get(CONF_SCHEDULE_HVAC)
-        self._fan_mode: Optional[str] = config.get(CONF_SCHEDULE_FAN_MODE)
-        self._swing_mode: Optional[str] = config.get(CONF_SCHEDULE_SWING_MODE)
-        self._min_temp: Optional[int] = config.get(CONF_SCHEDULE_MIN_TEMP)
-        self._max_temp: Optional[int] = config.get(CONF_SCHEDULE_MAX_TEMP)
-
-    @property
-    def time(self) -> timedelta:
-        return self._time
-
-    @property
-    def hvac_mode(self) -> Optional[str]:
-        return self._hvac_mode
-
-    @property
-    def fan_mode(self) -> Optional[str]:
-        return self._fan_mode
-
-    @property
-    def swing_mode(self) -> Optional[str]:
-        return self._swing_mode
-
-    @property
-    def min_temp(self) -> Optional[float]:
-        return self._min_temp
-
-    @property
-    def max_temp(self) -> Optional[float]:
-        return self._max_temp
