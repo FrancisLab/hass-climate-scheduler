@@ -28,7 +28,6 @@ from homeassistant.components.switch import SwitchEntity
 from homeassistant.components.climate import DOMAIN as CLIMATE_DOMAIN
 from homeassistant.const import (
     ATTR_ENTITY_ID,
-    ATTR_MODE,
     ATTR_TEMPERATURE,
     CONF_NAME,
     CONF_PLATFORM,
@@ -54,11 +53,16 @@ CONF_PROFILES = "profiles"
 CONF_PROFILE_NAME = "name"
 CONF_PROFILE_ID = "id"
 CONF_PROFILE_SCHEDULE = "schedule"
+CONF_PROFILE_DEFAULT_HVAC_MODE = "default_hvac_mode"
+CONF_PROFILE_DEFAULT_FAN_MODE = "default_fan_mode"
+CONF_PROFILE_DEFAULT_SWING_MODE = "default_swing_mode"
+CONF_PROFILE_DEFAULT_MIN_TEMP = "default_min_temp"
+CONF_PROFILE_DEFAULT_MAX_TEMP = "default_max_temp"
 
 CONF_SCHEDULE_TIME = "time"
 CONF_SCHEDULE_HVAC = "hvac_mode"
-CONF_SCHEDULE_MIN_TEMPERATURE = "min_temperature"
-CONF_SCHEDULE_MAX_TEMPERATURE = "max_temperature"
+CONF_SCHEDULE_MIN_TEMP = "min_temperature"
+CONF_SCHEDULE_MAX_TEMP = "max_temperature"
 CONF_SCHEDULE_FAN_MODE = "fan_mode"
 CONF_SCHEDULE_SWING_MODE = "swing_mode"
 
@@ -67,8 +71,8 @@ SCHEDULE_SCHEMA = vol.Schema(
         {
             vol.Required(CONF_SCHEDULE_TIME): cv.positive_time_period,  # Validator?
             vol.Optional(CONF_SCHEDULE_HVAC): cv.string,  # Validator?
-            vol.Optional(CONF_SCHEDULE_MIN_TEMPERATURE): vol.Coerce(float),
-            vol.Optional(CONF_SCHEDULE_MAX_TEMPERATURE): vol.Coerce(float),
+            vol.Optional(CONF_SCHEDULE_MIN_TEMP): vol.Coerce(float),
+            vol.Optional(CONF_SCHEDULE_MAX_TEMP): vol.Coerce(float),
             vol.Optional(CONF_SCHEDULE_FAN_MODE): cv.string,  # Validator?
             vol.Optional(CONF_SCHEDULE_SWING_MODE): cv.string,  # Validator?
         }
@@ -81,6 +85,11 @@ PROFILES_SCHEMA = vol.Schema(
             vol.Required(CONF_PROFILE_ID): str,
             vol.Optional(CONF_NAME, default="Unamed Profile"): str,
             vol.Required(CONF_PROFILE_SCHEDULE): SCHEDULE_SCHEMA,
+            vol.Optional(CONF_PROFILE_DEFAULT_HVAC_MODE): str,  # Validator?
+            vol.Optional(CONF_PROFILE_DEFAULT_FAN_MODE): str,  # Validator?
+            vol.Optional(CONF_PROFILE_DEFAULT_SWING_MODE): str,  # Validator?
+            vol.Optional(CONF_PROFILE_DEFAULT_MIN_TEMP): vol.Coerce(float),
+            vol.Optional(CONF_PROFILE_DEFAULT_MAX_TEMP): vol.Coerce(float),
         }
     ]
 )
@@ -175,6 +184,8 @@ class ClimateSchedulerSwitch(SwitchEntity, RestoreEntity):
     def icon(self) -> str:
         return ICON
 
+    # TODO: Expose more properties to UI
+
     async def async_turn_on(self, **kwargs) -> None:
         _LOGGER.debug(self.entity_id + ": Turn on")
 
@@ -200,8 +211,7 @@ class ClimateSchedulerSwitch(SwitchEntity, RestoreEntity):
             _LOGGER.debug(self.entity_id + ": No profile")
             return
 
-        # TODO: Track temperature of climate entities. Only heat/cool
-        # if under/above min/max threshold
+        # TODO: Track temperature of entities. Only heat/cool if under/above threshold
 
         dt = now()
         time_of_day = timedelta(hours=dt.hour, minutes=dt.minute, seconds=dt.second)
@@ -213,12 +223,6 @@ class ClimateSchedulerSwitch(SwitchEntity, RestoreEntity):
         ]
         await asyncio.wait(update_tasks)
 
-        #     _LOGGER.debug(self.entity_id + ": Turning off " + climate_entity)
-        #     service_data = {ATTR_ENTITY_ID: climate_entity}
-        #     await self._hass.services.async_call(
-        #         CLIMATE_DOMAIN, SERVICE_TURN_OFF, service_data
-        #     )
-
     async def _async_update_climate_entity(
         self, entity: str, data: Optional[ComputedClimateData]
     ) -> None:
@@ -226,11 +230,11 @@ class ClimateSchedulerSwitch(SwitchEntity, RestoreEntity):
             return
 
         await self._async_set_climate_hvac_mode(entity, data.hvac_mode)
+        await self._async_set_climate_fan_mode(entity, data.fan_mode)
+        await self._async_set_climate_swing_mode(entity, data.swing_mode)
         await self._async_set_climate_temperature(
             entity, data.hvac_mode, data.min_temperature, data.max_temperature
         )
-        await self._async_set_climate_fan_mode(entity, data.fan_mode)
-        await self._async_set_climate_swing_mode(entity, data.swing_mode)
 
     async def _async_set_climate_hvac_mode(
         self,
@@ -293,6 +297,12 @@ class ClimateSchedulerProfile:
         self._id: str = config.get(CONF_PROFILE_ID)
         self._name: str = config.get(CONF_PROFILE_NAME)
 
+        self._default_hvac_mode = config.get(CONF_PROFILE_DEFAULT_HVAC_MODE)
+        self._default_fan_mode = config.get(CONF_PROFILE_DEFAULT_FAN_MODE)
+        self._default_swing_mode = config.get(CONF_PROFILE_DEFAULT_SWING_MODE)
+        self._default_min_temp = config.get(CONF_PROFILE_DEFAULT_MIN_TEMP)
+        self._default_max_temp = config.get(CONF_PROFILE_DEFAULT_MAX_TEMP)
+
         # TODO: Validate schedule time < 24h. Do in config validator?
         # TODO: Validate that no two schedules have same start time. Do in config validator?
 
@@ -304,16 +314,21 @@ class ClimateSchedulerProfile:
     def compute_climate(self, time_of_day: timedelta) -> ComputedClimateData:
         schedule = self._find_schedule(time_of_day)
         if schedule is None:
-            # TODO: Return profile defaults if any
-            return None
+            return ComputedClimateData(
+                self._default_hvac_mode,
+                self._default_fan_mode,
+                self._default_swing_mode,
+                self._default_min_temp,
+                self._default_max_temp,
+            )
 
         # TODO: Replace None values with profile defaults if any
         return ComputedClimateData(
-            schedule.hvac_mode,
-            schedule.fan_mode,
-            schedule.swing_mode,
-            schedule.min_temperature,
-            schedule.max_temperature,
+            schedule.hvac_mode if schedule.hvac_mode else self._default_hvac_mode,
+            schedule.fan_mode if schedule.fan_mode else self._default_fan_mode,
+            schedule.swing_mode if schedule.swing_mode else self._default_swing_mode,
+            schedule.min_temp if schedule.min_temp else self._default_min_temp,
+            schedule.max_temp if schedule.max_temp else self._default_max_temp,
         )
 
     def _find_schedule(self, time_of_day: timedelta) -> Optional[ComputedClimateData]:
@@ -351,8 +366,8 @@ class ClimateShedulerSchedule:
         self._hvac_mode: Optional[str] = config.get(CONF_SCHEDULE_HVAC)
         self._fan_mode: Optional[str] = config.get(CONF_SCHEDULE_FAN_MODE)
         self._swing_mode: Optional[str] = config.get(CONF_SCHEDULE_SWING_MODE)
-        self._min_temperature: Optional[int] = config.get(CONF_SCHEDULE_MIN_TEMPERATURE)
-        self._max_temperature: Optional[int] = config.get(CONF_SCHEDULE_MAX_TEMPERATURE)
+        self._min_temp: Optional[int] = config.get(CONF_SCHEDULE_MIN_TEMP)
+        self._max_temp: Optional[int] = config.get(CONF_SCHEDULE_MAX_TEMP)
 
     @property
     def time(self) -> timedelta:
@@ -371,9 +386,9 @@ class ClimateShedulerSchedule:
         return self._swing_mode
 
     @property
-    def min_temperature(self) -> Optional[float]:
-        return self._min_temperature
+    def min_temp(self) -> Optional[float]:
+        return self._min_temp
 
     @property
-    def max_temperature(self) -> Optional[float]:
-        return self._max_temperature
+    def max_temp(self) -> Optional[float]:
+        return self._max_temp
