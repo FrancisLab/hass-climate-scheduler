@@ -323,7 +323,7 @@ class ClimateShedulerSchedule:
 
     @property
     def max_temp(self) -> Optional[float]:
-        return self._max_tem
+        return self._max_temp
 
 
 class ClimateSchedulerProfile:
