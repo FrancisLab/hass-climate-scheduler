@@ -42,7 +42,9 @@ async def async_setup(hass: HomeAssistant, global_config: dict):
 class ClimateScheduler(object):
     """ Climate Scheduler Implementation """
 
-    def __init__(self, hass: HomeAssistant, update_interval: datetime.timedelta):
+    def __init__(
+        self, hass: HomeAssistant, update_interval: datetime.timedelta
+    ) -> None:
         self.hass = hass
         self.data = {}
         self.data["update_interval"] = update_interval
