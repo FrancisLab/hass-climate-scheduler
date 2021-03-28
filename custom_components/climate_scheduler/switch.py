@@ -5,10 +5,13 @@ Climate Schduler Switch for Home-Assistant.
 DEPENDENCIES = ["climate_scheduler", "climate"]
 
 
+from datetime import timedelta
 import logging
-from homeassistant.components import climate
 import voluptuous as vol
-from typing import Coroutine, Iterable, List, Callable
+from typing import Coroutine, Iterable, List, Callable, Dict, Optional
+
+from voluptuous.schema_builder import Object
+from voluptuous.validators import Coerce
 
 import homeassistant.helpers.config_validation as cv
 from homeassistant.components.switch import SwitchEntity
@@ -34,6 +37,41 @@ ICON = "mdi:calendar-clock"
 
 CONF_CLIMATE_ENTITIES = "climate_entities"
 CONF_DEFAULT_STATE = "default_state"
+CONF_PROFILES = "profiles"
+
+CONF_PROFILE_NAME = "name"
+CONF_PROFILE_ID = "id"
+CONF_PROFILE_SCHEDULE = "schedule"
+
+CONF_SCHEDULE_TIME = "time"
+CONF_SCHEDULE_HVAC = "hvac_mode"
+CONF_SCHEDULE_MIN_TEMPERATURE = "min_temperature"
+CONF_SCHEDULE_MAX_TEMPERATURE = "max_temperature"
+CONF_SCHEDULE_FAN_MODE = "fan_mode"
+CONF_SCHEDULE_SWING_MODE = "swing_mode"
+
+SCHEDULE_SCHEMA = vol.Schema(
+    [
+        {
+            vol.Required(CONF_SCHEDULE_TIME): cv.positive_time_period,  # Validator?
+            vol.Optional(CONF_SCHEDULE_HVAC): cv.string,  # Validator?
+            vol.Optional(CONF_SCHEDULE_MIN_TEMPERATURE): vol.Coerce(float),
+            vol.Optional(CONF_SCHEDULE_MAX_TEMPERATURE): vol.Coerce(float),
+            vol.Optional(CONF_SCHEDULE_FAN_MODE): cv.string,  # Validator?
+            vol.Optional(CONF_SCHEDULE_SWING_MODE): cv.string,  # Validator?
+        }
+    ]
+)
+
+PROFILES_SCHEMA = vol.Schema(
+    [
+        {
+            vol.Required(CONF_PROFILE_ID): str,
+            vol.Optional(CONF_NAME, default="Unamed Profile"): str,
+            vol.Required(CONF_PROFILE_SCHEDULE): SCHEDULE_SCHEMA,
+        }
+    ]
+)
 
 PLATFORM_SCHEMA = vol.Schema(
     {
@@ -41,6 +79,7 @@ PLATFORM_SCHEMA = vol.Schema(
         vol.Optional(CONF_NAME, default="Climate Scheduler"): cv.string,
         vol.Optional(CONF_DEFAULT_STATE, default=False): cv.boolean,
         vol.Optional(CONF_CLIMATE_ENTITIES): cv.entity_ids,
+        vol.Optional(CONF_PROFILES): PROFILES_SCHEMA,
     },
     extra=vol.ALLOW_EXTRA,
 )
@@ -61,7 +100,7 @@ async def async_setup_platform(
         return False
 
     cs_switch = ClimateSchedulerSwitch(hass, cs, config)
-    await async_add_entities([cs_switch])
+    async_add_entities([cs_switch])
 
     return True
 
@@ -77,6 +116,11 @@ class ClimateSchedulerSwitch(SwitchEntity, RestoreEntity):
         self._name: str = config.get(CONF_NAME)
         self._state: bool = config.get(CONF_DEFAULT_STATE)
         self._climate_entities: List[str] = config.get(CONF_CLIMATE_ENTITIES)
+
+        self._profiles: Dict[str, ClimateSchedulerProfile] = {
+            profile_conf[CONF_PROFILE_ID]: ClimateSchedulerProfile(profile_conf)
+            for profile_conf in config.get(CONF_PROFILES)
+        }
 
         self._entity_id = "switch." + slugify(
             "{} {}".format("climate_scheduler", self._name)
@@ -113,13 +157,13 @@ class ClimateSchedulerSwitch(SwitchEntity, RestoreEntity):
 
         self._state = True
         await self.async_update_climate()
-        await self.async_schedule_update_ha_state()
+        self.async_schedule_update_ha_state()
 
     async def async_turn_off(self, **kwargs) -> None:
         _LOGGER.debug(self.entity_id + ": Turn off")
 
         self._state = False
-        await self.async_schedule_update_ha_state()
+        self.async_schedule_update_ha_state()
 
     async def async_update_climate(self) -> None:
         """Update all climate entities controlled by the swtich"""
@@ -130,9 +174,36 @@ class ClimateSchedulerSwitch(SwitchEntity, RestoreEntity):
             return
 
         # For testing, just turn off all climate entities
-        for climate_entity in self._climate_entities:
-            _LOGGER.debug(self.entity_id + ": Turning off " + climate_entity)
-            service_data = {ATTR_ENTITY_ID: climate_entity}
-            await self._hass.services.async_call(
-                CLIMATE_DOMAIN, SERVICE_TURN_OFF, service_data
-            )
+        # for climate_entity in self._climate_entities:
+        #     _LOGGER.debug(self.entity_id + ": Turning off " + climate_entity)
+        #     service_data = {ATTR_ENTITY_ID: climate_entity}
+        #     await self._hass.services.async_call(
+        #         CLIMATE_DOMAIN, SERVICE_TURN_OFF, service_data
+        #     )
+
+
+class ClimateSchedulerProfile(Object):
+    def __init__(self, config: dict) -> None:
+        self._id: str = config.get(CONF_PROFILE_ID)
+        self._name: str = config.get(CONF_PROFILE_NAME)
+
+        # TODO: Validate schedule time < 24h. Do in validator?
+
+        self._schedules = [
+            ClimateShedulerSchedule(c) for c in config.get(CONF_PROFILE_SCHEDULE)
+        ]
+        self._schedules.sort(key=lambda x: x.time)
+
+
+class ClimateShedulerSchedule(Object):
+    def __init__(self, config: dict) -> None:
+        self._time: timedelta = config.get(CONF_SCHEDULE_TIME)
+        self._hvac_mode: Optional[str] = config.get(CONF_SCHEDULE_HVAC)
+        self._fan_mode: Optional[str] = config.get(CONF_SCHEDULE_FAN_MODE)
+        self._swing_mode: Optional[str] = config.get(CONF_SCHEDULE_SWING_MODE)
+        self._min_temperature: Optional[int] = config.get(CONF_SCHEDULE_MIN_TEMPERATURE)
+        self._max_temperature: Optional[int] = config.get(CONF_SCHEDULE_MAX_TEMPERATURE)
+
+    @property
+    def time(self) -> timedelta:
+        return self._time

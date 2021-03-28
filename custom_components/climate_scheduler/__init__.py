@@ -21,7 +21,7 @@ CONF_UPDATE_INTERVAL = "update_interval"
 CONFIG_SCHEMA = vol.Schema(
     {
         DOMAIN: vol.Schema(
-            {vol.Optional(CONF_UPDATE_INTERVAL, default="00:15:00"): cv.time_period}
+            {vol.Optional(CONF_UPDATE_INTERVAL, default="00:15:00"): cv.positive_time_period}
         )
     },
     extra=vol.ALLOW_EXTRA,

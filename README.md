@@ -36,17 +36,19 @@ switch:
 # climate_profiles/master_bedroom/winter.yaml
 - name: "Master Bedroom Winter"
   id: "winter_home"
+  default_hvac_mode: "head"
+  # other defaults
   schedules:
   - time: 06:30
-      hvac_mode: "heat"
-      temperature: 22
-      fan_mode: "auto"
-      swing_mode: "auto"
+    hvac_mode: "heat"
+    temperature: 22
+    fan_mode: "auto"
+    swing_mode: "auto"
   - time: 21:00
-      hvac_mode: "heat"
-      temperature: 18
-      fan_mode: "quiet"
-      swing_mode: "midpoint"
+    hvac_mode: "heat"
+    temperature: 18
+    fan_mode: "quiet"
+    swing_mode: "midpoint"
 
 # climate_profiles/master_bedroom/summer.yaml
 - name: "Master Bedroom Summer"
