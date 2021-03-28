@@ -10,11 +10,13 @@ from collections import namedtuple
 from datetime import timedelta
 from homeassistant.components.climate.const import (
     ATTR_FAN_MODE,
+    ATTR_HVAC_MODE,
     ATTR_MAX_TEMP,
     ATTR_MIN_TEMP,
     ATTR_SWING_MODE,
     SERVICE_SET_FAN_MODE,
     SERVICE_SET_HVAC_MODE,
+    SERVICE_SET_SWING_MODE,
     SERVICE_SET_TEMPERATURE,
 )
 import logging
@@ -238,7 +240,7 @@ class ClimateSchedulerSwitch(SwitchEntity, RestoreEntity):
         if hvac_mode is None:
             return
 
-        data = {ATTR_ENTITY_ID: entity, ATTR_MODE: hvac_mode}
+        data = {ATTR_ENTITY_ID: entity, ATTR_HVAC_MODE: hvac_mode}
         await self._hass.services.async_call(
             CLIMATE_DOMAIN, SERVICE_SET_HVAC_MODE, data
         )
@@ -281,7 +283,9 @@ class ClimateSchedulerSwitch(SwitchEntity, RestoreEntity):
             return
 
         data = {ATTR_ENTITY_ID: entity, ATTR_SWING_MODE: swing_mode}
-        await self._hass.services.async_call(CLIMATE_DOMAIN, ATTR_SWING_MODE, data)
+        await self._hass.services.async_call(
+            CLIMATE_DOMAIN, SERVICE_SET_SWING_MODE, data
+        )
 
 
 class ClimateSchedulerProfile:
@@ -290,6 +294,7 @@ class ClimateSchedulerProfile:
         self._name: str = config.get(CONF_PROFILE_NAME)
 
         # TODO: Validate schedule time < 24h. Do in config validator?
+        # TODO: Validate that no two schedules have same start time. Do in config validator?
 
         self._schedules = [
             ClimateShedulerSchedule(c) for c in config.get(CONF_PROFILE_SCHEDULE)
@@ -327,8 +332,6 @@ class ClimateSchedulerProfile:
             # Search for a schedule starting earlier than the current time of day
             # which appears right before a schedule which starts later than the
             # current time of the day or which is the last schedule of the day.
-
-            # TODO: Validate that no two schedules can have the same start time
 
             next_schedule = None
             if index < len(self._schedules) - 1:
