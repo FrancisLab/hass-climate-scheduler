@@ -4,24 +4,26 @@ Climate Schduler Switch for Home-Assistant.
 
 DEPENDENCIES = ["climate_scheduler", "climate"]
 
-from typing import Optional
 
+import logging
+import voluptuous as vol
+
+import homeassistant.helpers.config_validation as cv
+from homeassistant.components.switch import SwitchEntity
+from homeassistant.const import (
+    CONF_NAME,
+    CONF_PLATFORM,
+)
 from homeassistant.core import HomeAssistant
-from custom_components.climate_scheduler import (
+from homeassistant.util import slugify
+
+from . import (
     ClimateScheduler,
     DATA_CLIMATE_SCHEDULER,
     DOMAIN,
 )
 
-import voluptuous as vol
-
-import homeassistant.helpers.config_validation as cv
-from homeassistant.const import (
-    CONF_NAME,
-    CONF_PLATFORM,
-)
-from homeassistant.util import slugify
-from homeassistant.components.switch import SwitchEntity
+ICON = "mdi:calendar-clock"
 
 CONF_CLIMATE_ENTITIES = "climate_entities"
 
@@ -33,6 +35,8 @@ PLATFORM_SCHEMA = vol.Schema(
     },
     extra=vol.ALLOW_EXTRA,
 )
+
+_LOGGER = logging.getLogger(__name__)
 
 
 def setup_platform(hass: HomeAssistant, config: dict, add_devices, discovery_info=None):
