@@ -6,19 +6,28 @@ DEPENDENCIES = ["climate_scheduler", "climate"]
 
 
 import logging
+from homeassistant.components import climate
 import voluptuous as vol
+from typing import Coroutine, Iterable, List, Callable
 
 import homeassistant.helpers.config_validation as cv
 from homeassistant.components.switch import SwitchEntity
-from homeassistant.const import CONF_NAME, CONF_PLATFORM, STATE_ON
+from homeassistant.components.climate import DOMAIN as CLIMATE_DOMAIN
+from homeassistant.const import (
+    CONF_NAME,
+    CONF_PLATFORM,
+    STATE_ON,
+    ATTR_ENTITY_ID,
+    SERVICE_TURN_OFF,
+)
 from homeassistant.core import HomeAssistant
 from homeassistant.helpers.restore_state import RestoreEntity
+from homeassistant.helpers.entity import Entity
 from homeassistant.util import slugify
 
 from . import (
     ClimateScheduler,
     DATA_CLIMATE_SCHEDULER,
-    DOMAIN,
 )
 
 ICON = "mdi:calendar-clock"
@@ -39,7 +48,12 @@ PLATFORM_SCHEMA = vol.Schema(
 _LOGGER = logging.getLogger(__name__)
 
 
-def setup_platform(hass: HomeAssistant, config: dict, add_devices, discovery_info=None):
+async def async_setup_platform(
+    hass: HomeAssistant,
+    config: dict,
+    async_add_entities: Callable[[Iterable[Entity], bool], Coroutine],
+    discovery_info=None,
+):
     """Set up the Climate Scheduler switches."""
     cs: ClimateScheduler = hass.data.get(DATA_CLIMATE_SCHEDULER)
 
@@ -47,11 +61,7 @@ def setup_platform(hass: HomeAssistant, config: dict, add_devices, discovery_inf
         return False
 
     cs_switch = ClimateSchedulerSwitch(hass, cs, config)
-    add_devices([cs_switch])
-
-    def update(call=None):
-        """Update climate"""
-        cs_switch.update_climate()
+    await async_add_entities([cs_switch])
 
     return True
 
@@ -66,6 +76,7 @@ class ClimateSchedulerSwitch(SwitchEntity, RestoreEntity):
 
         self._name: str = config.get(CONF_NAME)
         self._state: bool = config.get(CONF_DEFAULT_STATE)
+        self._climate_entities: List[str] = config.get(CONF_CLIMATE_ENTITIES)
 
         self._entity_id = "switch." + slugify(
             "{} {}".format("climate_scheduler", self._name)
@@ -80,10 +91,6 @@ class ClimateSchedulerSwitch(SwitchEntity, RestoreEntity):
 
         state = await self.async_get_last_state()
         self._state = state and state.state == STATE_ON
-
-    def update_climate(self):
-        """Update all climate entities controlled by the swtich"""
-        pass
 
     @property
     def entity_id(self) -> str:
@@ -102,10 +109,30 @@ class ClimateSchedulerSwitch(SwitchEntity, RestoreEntity):
         return ICON
 
     async def async_turn_on(self, **kwargs) -> None:
+        _LOGGER.debug(self.entity_id + ": Turn on")
+
         self._state = True
-        self.update_climate()
-        self.schedule_update_ha_state()
+        await self.async_update_climate()
+        await self.async_schedule_update_ha_state()
 
     async def async_turn_off(self, **kwargs) -> None:
+        _LOGGER.debug(self.entity_id + ": Turn off")
+
         self._state = False
-        self.schedule_update_ha_state()
+        await self.async_schedule_update_ha_state()
+
+    async def async_update_climate(self) -> None:
+        """Update all climate entities controlled by the swtich"""
+        _LOGGER.debug(self.entity_id + ": Updating climate")
+
+        if not self.is_on:
+            _LOGGER.debug(self.entity_id + ": Disabled")
+            return
+
+        # For testing, just turn off all climate entities
+        for climate_entity in self._climate_entities:
+            _LOGGER.debug(self.entity_id + ": Turning off " + climate_entity)
+            service_data = {ATTR_ENTITY_ID: climate_entity}
+            await self._hass.services.async_call(
+                CLIMATE_DOMAIN, SERVICE_TURN_OFF, service_data
+            )
