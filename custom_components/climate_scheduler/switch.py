@@ -34,12 +34,17 @@ from homeassistant.const import (
     STATE_ON,
 )
 from homeassistant.core import HomeAssistant
-from homeassistant.helpers.restore_state import RestoreEntity
 from homeassistant.helpers.entity import Entity
+from homeassistant.helpers.event import (
+    async_track_time_change,
+    async_track_time_interval,
+)
+from homeassistant.helpers.restore_state import RestoreEntity
 from homeassistant.util import slugify
 from homeassistant.util.dt import now
 
 from . import (
+    CONF_UPDATE_INTERVAL,
     ClimateScheduler,
     DATA_CLIMATE_SCHEDULER,
 )
@@ -140,6 +145,8 @@ class ClimateSchedulerSwitch(SwitchEntity, RestoreEntity):
         self._hass = hass
         self._cs = cs
 
+        self._update_interval = self._cs._update_interval
+
         self._name: str = config.get(CONF_NAME)
         self._state: bool = config.get(CONF_DEFAULT_STATE)
         self._climate_entities: List[str] = config.get(CONF_CLIMATE_ENTITIES)
@@ -157,6 +164,33 @@ class ClimateSchedulerSwitch(SwitchEntity, RestoreEntity):
         # TODO: How to display current profile in entity state/attributes?
         # TODO: How to restore current profile in async_added_to_hass?
         self._curent_profile = self._profiles.get("master_bedroom_heating")
+
+        self._interval_tracker_remove_callbacks = async_track_time_interval(
+            hass, self.async_update_climate, self._update_interval
+        )
+        self._schedule_tracker_remove_callbacks: List[Callable[[], None]] = []
+        self._update_schedule_trackers()
+
+    def _update_schedule_trackers(self):
+        if self._curent_profile is None:
+            return
+
+        # Clear any previous schedule trackers
+        for remove_callback in self._schedule_tracker_remove_callbacks:
+            remove_callback()
+
+        # Register new trackers
+        self._schedule_tracker_remove_callbacks = []
+        for schedule in self._curent_profile.get_trigger_times():
+            self._schedule_tracker_remove_callbacks.append(
+                async_track_time_change(
+                    self._hass,
+                    self.async_update_climate,
+                    hour=schedule.seconds // 3600,
+                    minute=schedule.seconds // 60 % 60,
+                    second=schedule.seconds % 60,
+                )
+            )
 
     async def async_added_to_hass(self):
         """Call when entity about to be added to hass."""
@@ -364,6 +398,9 @@ class ClimateSchedulerProfile:
             schedule.min_temp if schedule.min_temp else self._default_min_temp,
             schedule.max_temp if schedule.max_temp else self._default_max_temp,
         )
+
+    def get_trigger_times(self) -> List[timedelta]:
+        return [s.time for s in self._schedules]
 
     def _find_schedule(
         self, time_of_day: timedelta

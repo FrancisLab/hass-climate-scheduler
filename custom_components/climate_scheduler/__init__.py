@@ -21,7 +21,11 @@ CONF_UPDATE_INTERVAL = "update_interval"
 CONFIG_SCHEMA = vol.Schema(
     {
         DOMAIN: vol.Schema(
-            {vol.Optional(CONF_UPDATE_INTERVAL, default="00:15:00"): cv.positive_time_period}
+            {
+                vol.Optional(
+                    CONF_UPDATE_INTERVAL, default="00:15:00"
+                ): cv.positive_time_period
+            }
         )
     },
     extra=vol.ALLOW_EXTRA,
@@ -33,14 +37,11 @@ _LOGGER = logging.getLogger(__name__)
 async def async_setup(hass: HomeAssistant, global_config: dict):
     """Set up the Climate Scheduler component."""
 
-    if DOMAIN not in global_config:
-        return True
+    config = global_config.get(DOMAIN)
+    if config is None:
+        return
 
-    config = global_config[DOMAIN]
-    update_interval: timedelta = config.get(CONF_UPDATE_INTERVAL)
-
-    climate_scheduler = ClimateScheduler(hass, update_interval)
-
+    climate_scheduler = ClimateScheduler(hass, config)
     hass.data[DATA_CLIMATE_SCHEDULER] = climate_scheduler
 
     return True
@@ -49,7 +50,10 @@ async def async_setup(hass: HomeAssistant, global_config: dict):
 class ClimateScheduler(object):
     """ Climate Scheduler Implementation """
 
-    def __init__(self, hass: HomeAssistant, update_interval: timedelta) -> None:
+    def __init__(self, hass: HomeAssistant, config: dict) -> None:
         self.hass = hass
-        self.data = {}
-        self.data["update_interval"] = update_interval
+        self._update_interval: timedelta = config.get(CONF_UPDATE_INTERVAL)
+
+    @property
+    def update_interval(self) -> timedelta:
+        return self._update_interval
