@@ -20,7 +20,7 @@ from homeassistant.components.climate.const import (
 )
 import logging
 import voluptuous as vol
-from typing import Coroutine, Iterable, List, Callable, Dict, Optional, Tuple
+from typing import Iterable, List, Callable, Dict, Optional
 
 import homeassistant.helpers.config_validation as cv
 from homeassistant.components.switch import SwitchEntity
@@ -45,7 +45,6 @@ from homeassistant.helpers.restore_state import RestoreEntity
 from homeassistant.util import slugify
 from homeassistant.util.dt import now
 from homeassistant.helpers.entity_platform import EntityPlatform, async_get_platforms
-from homeassistant.helpers.dispatcher import async_dispatcher_connect
 
 from . import (
     ClimateScheduler,
@@ -158,6 +157,9 @@ class ClimateShedulerSchedule:
         return self._max_temp
 
 
+# TODO: Create a special NoneProfile?
+
+
 class ClimateSchedulerProfile:
     def __init__(self, config: dict) -> None:
         self._id: str = config.get(CONF_PROFILE_ID)
@@ -238,7 +240,7 @@ class ClimateSchedulerProfile:
 ATTR_IS_ON = "is_on"
 ATTR_PROFILE = "current_profile"
 ATTR_PROFILE_OPTIONS = "profile_options"
-# TODO: Add an "explanation string"
+# TODO: Add an "explanation string" attribute and property
 
 
 class ClimateSchedulerSwitch(SwitchEntity, RestoreEntity):
@@ -535,6 +537,7 @@ async def async_maybe_add_input_select(
     scheduler: ClimateSchedulerSwitch,
 ) -> None:
     """Create input_select entity for picking profiles and attach it to the scheduler"""
+    # TODO: Move to ClimateScheduleSwitch
 
     INPUT_SELECT = "input_select"
     platforms = async_get_platforms(hass, INPUT_SELECT)
@@ -543,19 +546,21 @@ async def async_maybe_add_input_select(
         return
     input_select_platform: EntityPlatform = platforms[0]
 
-    # input_select = InputSe
+    # TODO: Put None as an option, make it a reserved id
+
     selector_config = {
         CONF_ID: "input_select.climate_scheduler_"
         + scheduler.entity_id_suffix
         + "_profile_selector",
         CONF_NAME: scheduler.name + " Climate Profile Selector",
         CONF_OPTIONS: scheduler.profile_options,
-        # TODO: Initial value
         # TODO: Cool icon
     }
     # TODO: Add names to selector instead of id?
 
     input_select = InputSelect(selector_config)
     await input_select_platform.async_add_entities([input_select], True)
+
+    # TODO: Set to current profile ID
 
     scheduler.attach_input_select(input_select)
