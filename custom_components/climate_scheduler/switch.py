@@ -2,12 +2,11 @@
 Climate Schduler Switch for Home-Assistant.
 """
 
-DEPENDENCIES = ["climate_scheduler", "climate"]
-
 
 import asyncio
 from collections import namedtuple
 from datetime import timedelta
+from homeassistant.components.input_select import CONF_OPTIONS, InputSelect
 from homeassistant.components.climate.const import (
     ATTR_FAN_MODE,
     ATTR_HVAC_MODE,
@@ -29,6 +28,7 @@ from homeassistant.components.climate import DOMAIN as CLIMATE_DOMAIN
 from homeassistant.const import (
     ATTR_ENTITY_ID,
     ATTR_TEMPERATURE,
+    CONF_ID,
     CONF_NAME,
     CONF_PLATFORM,
     STATE_ON,
@@ -42,9 +42,9 @@ from homeassistant.helpers.event import (
 from homeassistant.helpers.restore_state import RestoreEntity
 from homeassistant.util import slugify
 from homeassistant.util.dt import now
+from homeassistant.helpers.entity_platform import EntityPlatform, async_get_platforms
 
 from . import (
-    CONF_UPDATE_INTERVAL,
     ClimateScheduler,
     DATA_CLIMATE_SCHEDULER,
 )
@@ -113,24 +113,6 @@ PLATFORM_SCHEMA = vol.Schema(
 _LOGGER = logging.getLogger(__name__)
 
 
-async def async_setup_platform(
-    hass: HomeAssistant,
-    config: dict,
-    async_add_entities: Callable[[Iterable[Entity], bool], Coroutine],
-    discovery_info=None,
-):
-    """Set up the Climate Scheduler switches."""
-    cs: ClimateScheduler = hass.data.get(DATA_CLIMATE_SCHEDULER)
-
-    if cs is None:
-        return False
-
-    cs_switch = ClimateSchedulerSwitch(hass, cs, config)
-    async_add_entities([cs_switch])
-
-    return True
-
-
 ComputedClimateData = namedtuple(
     "ComputedClimateData",
     ["hvac_mode", "fan_mode", "swing_mode", "min_temp", "max_temp"],
@@ -156,14 +138,15 @@ class ClimateSchedulerSwitch(SwitchEntity, RestoreEntity):
             for profile_conf in config.get(CONF_PROFILES)
         }
 
-        self._entity_id = "switch." + slugify(
-            "{} {}".format("climate_scheduler", self._name)
-        )
-
         # TODO: How to switch between profiles? New service? Implement input_select?
+        # Create new InputSelector entity with available profiles
+        # Add entity to InputSelector platform
+        # Track state changes of entity, set _current_profile in response to changes
+        self._curent_profile = self._profiles.get("master_bedroom_heating")
+
         # TODO: How to display current profile in entity state/attributes?
         # TODO: How to restore current profile in async_added_to_hass?
-        self._curent_profile = self._profiles.get("master_bedroom_heating")
+        # Maybe implement async_will_remove_from_hass?
 
         self._interval_tracker_remove_callbacks = async_track_time_interval(
             hass, self.async_update_climate, self._update_interval
@@ -204,7 +187,11 @@ class ClimateSchedulerSwitch(SwitchEntity, RestoreEntity):
 
     @property
     def entity_id(self) -> str:
-        return self._entity_id
+        return "switch." + self.entity_id_suffix
+
+    @property
+    def entity_id_suffix(self) -> str:
+        return slugify("{} {}".format("climate_scheduler", self._name))
 
     @property
     def name(self) -> str:
@@ -217,6 +204,10 @@ class ClimateSchedulerSwitch(SwitchEntity, RestoreEntity):
     @property
     def icon(self) -> str:
         return ICON
+
+    @property
+    def profile_options(self) -> List[str]:
+        return list(self._profiles.keys())
 
     # TODO: Expose more properties to UI
 
@@ -233,7 +224,7 @@ class ClimateSchedulerSwitch(SwitchEntity, RestoreEntity):
         self._state = False
         self.async_schedule_update_ha_state()
 
-    async def async_update_climate(self) -> None:
+    async def async_update_climate(self, *args, **kwargs) -> None:
         """Update all climate entities controlled by the swtich"""
         _LOGGER.debug(self.entity_id + ": Updating climate")
 
@@ -431,3 +422,51 @@ class ClimateSchedulerProfile:
                 return schedule
 
         return None
+
+
+async def async_setup_platform(
+    hass: HomeAssistant,
+    config: dict,
+    async_add_entities: Callable[[Iterable[Entity], bool], None],
+    discovery_info=None,
+):
+    """Set up the Climate Scheduler switches."""
+    cs: ClimateScheduler = hass.data.get(DATA_CLIMATE_SCHEDULER)
+
+    if cs is None:
+        return False
+
+    cs_switch = ClimateSchedulerSwitch(hass, cs, config)
+    async_add_entities([cs_switch], True)
+
+    await async_maybe_add_input_select(hass, cs_switch)
+
+    return True
+
+
+async def async_maybe_add_input_select(
+    hass: HomeAssistant,
+    scheduler: ClimateSchedulerSwitch,
+) -> InputSelect:
+    INPUT_SELECT = "input_select"
+    platforms = async_get_platforms(hass, INPUT_SELECT)
+    if len(platforms) == 0:
+        logging.warn("No input select platform, not adding selectors")
+        return
+    input_select_platform: EntityPlatform = platforms[0]
+
+    # input_select = InputSe
+    selector_config = {
+        CONF_ID: "input_select.climate_scheduler_"
+        + scheduler.entity_id_suffix
+        + "_profile_selector",
+        CONF_NAME: scheduler.name + " Climate Profile Selector",
+        CONF_OPTIONS: scheduler.profile_options,
+        # TODO: Initial value
+        # TODO: Cool icon
+    }
+    input_select = InputSelect(selector_config)
+
+    await input_select_platform.async_add_entities([input_select], True)
+
+    return input_select
