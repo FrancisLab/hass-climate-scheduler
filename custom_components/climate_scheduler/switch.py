@@ -31,6 +31,7 @@ from homeassistant.const import (
     CONF_ID,
     CONF_NAME,
     CONF_PLATFORM,
+    STATE_OFF,
     STATE_ON,
 )
 from homeassistant.core import HomeAssistant, State
@@ -44,6 +45,7 @@ from homeassistant.helpers.restore_state import RestoreEntity
 from homeassistant.util import slugify
 from homeassistant.util.dt import now
 from homeassistant.helpers.entity_platform import EntityPlatform, async_get_platforms
+from homeassistant.helpers.dispatcher import async_dispatcher_connect
 
 from . import (
     ClimateScheduler,
@@ -54,6 +56,7 @@ ICON = "mdi:calendar-clock"
 
 CONF_CLIMATE_ENTITIES = "climate_entities"
 CONF_DEFAULT_STATE = "default_state"
+CONF_DEFAULT_PROFILE = "default_profile"
 CONF_PROFILES = "profiles"
 
 CONF_PROFILE_NAME = "name"
@@ -105,6 +108,7 @@ PLATFORM_SCHEMA = vol.Schema(
         vol.Required(CONF_PLATFORM): "climate_scheduler",
         vol.Optional(CONF_NAME, default="Climate Scheduler"): cv.string,
         vol.Optional(CONF_DEFAULT_STATE, default=False): cv.boolean,
+        vol.Optional(CONF_DEFAULT_PROFILE): cv.string,
         vol.Optional(CONF_CLIMATE_ENTITIES): cv.entity_ids,
         vol.Optional(CONF_PROFILES): PROFILES_SCHEMA,
     },
@@ -231,6 +235,12 @@ class ClimateSchedulerProfile:
         return None
 
 
+ATTR_IS_ON = "is_on"
+ATTR_PROFILE = "current_profile"
+ATTR_PROFILE_OPTIONS = "profile_options"
+# TODO: Add an "explanation string"
+
+
 class ClimateSchedulerSwitch(SwitchEntity, RestoreEntity):
     """Representation of a Climate Scheduler swith."""
 
@@ -239,32 +249,93 @@ class ClimateSchedulerSwitch(SwitchEntity, RestoreEntity):
         self._hass = hass
         self._cs = cs
 
+        # Global configs
         self._update_interval = self._cs._update_interval
 
+        # Simple configs
         self._name: str = config.get(CONF_NAME)
-        self._state: bool = config.get(CONF_DEFAULT_STATE)
         self._climate_entities: List[str] = config.get(CONF_CLIMATE_ENTITIES)
 
+        # Setup state
+        self._state: Optional[str] = None
+        self._default_state: Optional[str] = (
+            STATE_ON if config.get(CONF_DEFAULT_STATE) else STATE_OFF
+        )
+
+        # Setup profiles
         self._profiles: Dict[str, ClimateSchedulerProfile] = {
             profile_conf[CONF_PROFILE_ID]: ClimateSchedulerProfile(profile_conf)
             for profile_conf in config.get(CONF_PROFILES)
         }
 
-        # TODO: How to switch between profiles? New service? Implement input_select?
-        # Create new InputSelector entity with available profiles
-        # Add entity to InputSelector platform
-        # Track state changes of entity, set _current_profile in response to changes
-        self._curent_profile = self._profiles.get("master_bedroom_heating")
+        # Setup default profile
+        self._default_profile_id: Optional[str] = config.get(CONF_DEFAULT_PROFILE)
+        if self._default_profile_id not in self._profiles:
+            logging.warn(
+                "Ignoring invalid default profile id {}".format(
+                    self._default_profile_id
+                )
+            )
+            self._default_profile_id = None
 
-        # TODO: How to display current profile in entity state/attributes?
-        # TODO: How to restore current profile in async_added_to_hass?
-        # Maybe implement async_will_remove_from_hass?
+        # Setup current profile
+        self._current_profile: Optional[ClimateSchedulerProfile] = None
+        self._current_profile = self._profiles.get(
+            # Using current_profile_id property will resolve the default profile for us
+            self.current_profile_id
+        )
 
+        # Setup time trackers
         self._interval_tracker_remove_callbacks = async_track_time_interval(
             hass, self.async_update_climate, self._update_interval
         )
         self._schedule_tracker_remove_callbacks: List[Callable[[], None]] = []
         self._update_schedule_trackers()
+
+        # TODO: Can I create the input_select here instead?
+
+    @property
+    def entity_id(self) -> str:
+        return "switch." + self.entity_id_suffix
+
+    @property
+    def entity_id_suffix(self) -> str:
+        return slugify("{} {}".format("climate_scheduler", self._name))
+
+    @property
+    def name(self) -> str:
+        return self._name
+
+    @property
+    def is_on(self) -> bool:
+        return self._state == STATE_ON
+
+    @property
+    def icon(self) -> str:
+        return ICON
+
+    @property
+    def profile_options(self) -> List[str]:
+        return list(self._profiles.keys())
+
+    @property
+    def state(self) -> Optional[str]:
+        if self._state is None:
+            return self._default_state if self._default_state else STATE_OFF
+        return self._state
+
+    @property
+    def current_profile_id(self) -> Optional[str]:
+        if self._current_profile is None:
+            return self._default_profile_id if self._default_profile_id else None
+        return self._current_profile.profile_id
+
+    @property
+    def state_attributes(self):
+        return {
+            ATTR_PROFILE: self.current_profile_id,
+            ATTR_PROFILE_OPTIONS: self.profile_options,
+        }
 
     def attach_input_select(self, selector: InputSelect) -> None:
         """Attach input select entity used to pick profiles"""
@@ -279,22 +350,23 @@ class ClimateSchedulerSwitch(SwitchEntity, RestoreEntity):
         self, entity_id: str, old_state: State, new_state: State
     ) -> None:
         """Invoked when a different profile has been chosen via input select"""
-        new_profile_id = new_state.state
+        await self._async_update_profile(new_state.state)
+
+    async def _async_update_profile(self, new_profile_id: str) -> None:
         if new_profile_id not in self._profiles:
             logging.warn("Ignoring invalid profile with id={}".format(new_profile_id))
             return
 
-        await self._async_update_profile(self._profiles.get(new_profile_id))
-
-    async def _async_update_profile(self, new_profile: ClimateSchedulerProfile) -> None:
-        self._curent_profile = new_profile
+        self._current_profile = self._profiles.get(new_profile_id)
 
         self._update_schedule_trackers()
         await self.async_update_climate()
 
+        self.async_schedule_update_ha_state()
+
     def _update_schedule_trackers(self):
         """Update time intervals and schedule times tracked by the scheduler"""
-        if self._curent_profile is None:
+        if self._current_profile is None:
             return
 
         # Clear any previous schedule trackers
@@ -303,7 +375,7 @@ class ClimateSchedulerSwitch(SwitchEntity, RestoreEntity):
 
         # Register new trackers
         self._schedule_tracker_remove_callbacks = []
-        for schedule in self._curent_profile.get_trigger_times():
+        for schedule in self._current_profile.get_trigger_times():
             self._schedule_tracker_remove_callbacks.append(
                 async_track_time_change(
                     self._hass,
@@ -321,46 +393,28 @@ class ClimateSchedulerSwitch(SwitchEntity, RestoreEntity):
         if self._state is not None:
             return
 
-        state = await self.async_get_last_state()
-        self._state = state and state.state == STATE_ON
+        previous_state = await self.async_get_last_state()
+        previous_attributes = previous_state.attributes
 
-    @property
-    def entity_id(self) -> str:
-        return "switch." + self.entity_id_suffix
+        if previous_state.state:
+            self._state = previous_state.state
 
-    @property
-    def entity_id_suffix(self) -> str:
-        return slugify("{} {}".format("climate_scheduler", self._name))
+        if ATTR_PROFILE in previous_attributes:
+            await self._async_update_profile(previous_attributes[ATTR_PROFILE])
 
-    @property
-    def name(self) -> str:
-        return self._name
-
-    @property
-    def is_on(self) -> bool:
-        return self._state
-
-    @property
-    def icon(self) -> str:
-        return ICON
-
-    @property
-    def profile_options(self) -> List[str]:
-        return list(self._profiles.keys())
-
-    # TODO: Expose more properties to UI
+        self.async_schedule_update_ha_state()
 
     async def async_turn_on(self, **kwargs) -> None:
         _LOGGER.debug(self.entity_id + ": Turn on")
 
-        self._state = True
+        self._state = STATE_ON
         await self.async_update_climate()
         self.async_schedule_update_ha_state()
 
     async def async_turn_off(self, **kwargs) -> None:
         _LOGGER.debug(self.entity_id + ": Turn off")
 
-        self._state = False
+        self._state = STATE_OFF
         self.async_schedule_update_ha_state()
 
     async def async_update_climate(self, *args, **kwargs) -> None:
@@ -371,7 +425,7 @@ class ClimateSchedulerSwitch(SwitchEntity, RestoreEntity):
             _LOGGER.debug(self.entity_id + ": Disabled")
             return
 
-        if self._curent_profile is None:
+        if self._current_profile is None:
             _LOGGER.debug(self.entity_id + ": No profile")
             return
 
@@ -379,7 +433,7 @@ class ClimateSchedulerSwitch(SwitchEntity, RestoreEntity):
 
         dt = now()
         time_of_day = timedelta(hours=dt.hour, minutes=dt.minute, seconds=dt.second)
-        climate_data = self._curent_profile.compute_climate(time_of_day)
+        climate_data = self._current_profile.compute_climate(time_of_day)
 
         update_tasks = [
             self._async_update_climate_entity(entity, climate_data)
@@ -397,7 +451,7 @@ class ClimateSchedulerSwitch(SwitchEntity, RestoreEntity):
         await self._async_set_climate_fan_mode(entity, data.fan_mode)
         await self._async_set_climate_swing_mode(entity, data.swing_mode)
         await self._async_set_climate_temperature(
-            entity, data.hvac_mode, data.min_temperature, data.max_temperature
+            entity, data.hvac_mode, data.min_temp, data.max_temp
         )
 
     async def _async_set_climate_hvac_mode(
