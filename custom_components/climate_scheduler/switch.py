@@ -267,6 +267,7 @@ class ClimateSchedulerSwitch(SwitchEntity, RestoreEntity):
         self._update_schedule_trackers()
 
     def attach_input_select(self, selector: InputSelect) -> None:
+        """Attach input select entity used to pick profiles"""
         if selector is None:
             return
 
@@ -277,6 +278,7 @@ class ClimateSchedulerSwitch(SwitchEntity, RestoreEntity):
     async def _async_on_profile_selector_change(
         self, entity_id: str, old_state: State, new_state: State
     ) -> None:
+        """Invoked when a different profile has been chosen via input select"""
         new_profile_id = new_state.state
         if new_profile_id not in self._profiles:
             logging.warn("Ignoring invalid profile with id={}".format(new_profile_id))
@@ -291,6 +293,7 @@ class ClimateSchedulerSwitch(SwitchEntity, RestoreEntity):
         await self.async_update_climate()
 
     def _update_schedule_trackers(self):
+        """Update time intervals and schedule times tracked by the scheduler"""
         if self._curent_profile is None:
             return
 
@@ -312,7 +315,7 @@ class ClimateSchedulerSwitch(SwitchEntity, RestoreEntity):
             )
 
     async def async_added_to_hass(self):
-        """Call when entity about to be added to hass."""
+        """Call when entity about to be added to hass. Used to restore state."""
         # If not None, we got an initial value.
         await super().async_added_to_hass()
         if self._state is not None:
@@ -459,7 +462,7 @@ async def async_setup_platform(
     async_add_entities: Callable[[Iterable[Entity], bool], None],
     discovery_info=None,
 ):
-    """Set up the Climate Scheduler switches."""
+    """Set up the Climate Scheduler switches"""
     cs: ClimateScheduler = hass.data.get(DATA_CLIMATE_SCHEDULER)
 
     if cs is None:
@@ -468,8 +471,7 @@ async def async_setup_platform(
     cs_switch = ClimateSchedulerSwitch(hass, cs, config)
     async_add_entities([cs_switch], True)
 
-    profile_select = await async_maybe_add_input_select(hass, cs_switch)
-    cs_switch.attach_input_select(profile_select)
+    await async_maybe_add_input_select(hass, cs_switch)
 
     return True
 
@@ -477,7 +479,9 @@ async def async_setup_platform(
 async def async_maybe_add_input_select(
     hass: HomeAssistant,
     scheduler: ClimateSchedulerSwitch,
-) -> InputSelect:
+) -> None:
+    """Create input_select entity for picking profiles and attach it to the scheduler"""
+
     INPUT_SELECT = "input_select"
     platforms = async_get_platforms(hass, INPUT_SELECT)
     if len(platforms) == 0:
@@ -500,4 +504,4 @@ async def async_maybe_add_input_select(
     input_select = InputSelect(selector_config)
     await input_select_platform.async_add_entities([input_select], True)
 
-    return input_select
+    scheduler.attach_input_select(input_select)
