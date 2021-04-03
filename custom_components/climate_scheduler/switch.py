@@ -33,9 +33,10 @@ from homeassistant.const import (
     CONF_PLATFORM,
     STATE_ON,
 )
-from homeassistant.core import HomeAssistant
+from homeassistant.core import HomeAssistant, State
 from homeassistant.helpers.entity import Entity
 from homeassistant.helpers.event import (
+    async_track_state_change,
     async_track_time_change,
     async_track_time_interval,
 )
@@ -119,6 +120,117 @@ ComputedClimateData = namedtuple(
 )
 
 
+class ClimateShedulerSchedule:
+    def __init__(self, config: dict) -> None:
+        self._time: timedelta = config.get(CONF_SCHEDULE_TIME)
+        self._hvac_mode: Optional[str] = config.get(CONF_SCHEDULE_HVAC)
+        self._fan_mode: Optional[str] = config.get(CONF_SCHEDULE_FAN_MODE)
+        self._swing_mode: Optional[str] = config.get(CONF_SCHEDULE_SWING_MODE)
+        self._min_temp: Optional[int] = config.get(CONF_SCHEDULE_MIN_TEMP)
+        self._max_temp: Optional[int] = config.get(CONF_SCHEDULE_MAX_TEMP)
+
+    @property
+    def time(self) -> timedelta:
+        return self._time
+
+    @property
+    def hvac_mode(self) -> Optional[str]:
+        return self._hvac_mode
+
+    @property
+    def fan_mode(self) -> Optional[str]:
+        return self._fan_mode
+
+    @property
+    def swing_mode(self) -> Optional[str]:
+        return self._swing_mode
+
+    @property
+    def min_temp(self) -> Optional[float]:
+        return self._min_temp
+
+    @property
+    def max_temp(self) -> Optional[float]:
+        return self._max_temp
+
+
+class ClimateSchedulerProfile:
+    def __init__(self, config: dict) -> None:
+        self._id: str = config.get(CONF_PROFILE_ID)
+        self._name: str = config.get(CONF_PROFILE_NAME)
+
+        self._default_hvac_mode = config.get(CONF_PROFILE_DEFAULT_HVAC_MODE)
+        self._default_fan_mode = config.get(CONF_PROFILE_DEFAULT_FAN_MODE)
+        self._default_swing_mode = config.get(CONF_PROFILE_DEFAULT_SWING_MODE)
+        self._default_min_temp = config.get(CONF_PROFILE_DEFAULT_MIN_TEMP)
+        self._default_max_temp = config.get(CONF_PROFILE_DEFAULT_MAX_TEMP)
+
+        # TODO: Validate schedule time < 24h. Do in config validator?
+        # TODO: Validate that no two schedules have same start time. Do in config validator?
+
+        self._schedules = [
+            ClimateShedulerSchedule(c) for c in config.get(CONF_PROFILE_SCHEDULE)
+        ]
+        self._schedules.sort(key=lambda x: x.time.total_seconds())
+
+    @property
+    def profile_id(self) -> str:
+        return self._id
+
+    def compute_climate(self, time_of_day: timedelta) -> ComputedClimateData:
+        schedule = self._find_schedule(time_of_day)
+        if schedule is None:
+            return ComputedClimateData(
+                self._default_hvac_mode,
+                self._default_fan_mode,
+                self._default_swing_mode,
+                self._default_min_temp,
+                self._default_max_temp,
+            )
+
+        # TODO: Replace None values with profile defaults if any
+        return ComputedClimateData(
+            schedule.hvac_mode if schedule.hvac_mode else self._default_hvac_mode,
+            schedule.fan_mode if schedule.fan_mode else self._default_fan_mode,
+            schedule.swing_mode if schedule.swing_mode else self._default_swing_mode,
+            schedule.min_temp if schedule.min_temp else self._default_min_temp,
+            schedule.max_temp if schedule.max_temp else self._default_max_temp,
+        )
+
+    def get_trigger_times(self) -> List[timedelta]:
+        return [s.time for s in self._schedules]
+
+    def _find_schedule(
+        self, time_of_day: timedelta
+    ) -> Optional[ClimateShedulerSchedule]:
+        if len(self._schedules) == 0:
+            return None
+
+        if len(self._schedules) == 1:
+            return self._schedules[0]
+
+        # If the current time is earlier than the first schedule, wrap around and
+        # return the last schedule of the day
+        if time_of_day < self._schedules[0].time:
+            return self._schedules[-1]
+
+        for index, schedule in enumerate(self._schedules):
+            # Search for a schedule starting earlier than the current time of day
+            # which appears right before a schedule which starts later than the
+            # current time of the day or which is the last schedule of the day.
+
+            next_schedule = None
+            if index < len(self._schedules) - 1:
+                next_schedule = self._schedules[index + 1]
+
+            if time_of_day >= schedule.time and (
+                next_schedule is None or time_of_day < next_schedule.time
+            ):
+                return schedule
+
+        return None
+
+
 class ClimateSchedulerSwitch(SwitchEntity, RestoreEntity):
     """Representation of a Climate Scheduler swith."""
 
@@ -153,6 +265,30 @@ class ClimateSchedulerSwitch(SwitchEntity, RestoreEntity):
         )
         self._schedule_tracker_remove_callbacks: List[Callable[[], None]] = []
         self._update_schedule_trackers()
+
+    def attach_input_select(self, selector: InputSelect) -> None:
+        if selector is None:
+            return
+
+        self._profile_tracker_remover = async_track_state_change(
+            self._hass, [selector.entity_id], self._async_on_profile_selector_change
+        )
+
+    async def _async_on_profile_selector_change(
+        self, entity_id: str, old_state: State, new_state: State
+    ) -> None:
+        new_profile_id = new_state.state
+        if new_profile_id not in self._profiles:
+            logging.warn("Ignoring invalid profile with id={}".format(new_profile_id))
+            return
+
+        await self._async_update_profile(self._profiles.get(new_profile_id))
+
+    async def _async_update_profile(self, new_profile: ClimateSchedulerProfile) -> None:
+        self._curent_profile = new_profile
+
+        self._update_schedule_trackers()
+        await self.async_update_climate()
 
     def _update_schedule_trackers(self):
         if self._curent_profile is None:
@@ -317,113 +453,6 @@ class ClimateSchedulerSwitch(SwitchEntity, RestoreEntity):
         )
 
 
-class ClimateShedulerSchedule:
-    def __init__(self, config: dict) -> None:
-        self._time: timedelta = config.get(CONF_SCHEDULE_TIME)
-        self._hvac_mode: Optional[str] = config.get(CONF_SCHEDULE_HVAC)
-        self._fan_mode: Optional[str] = config.get(CONF_SCHEDULE_FAN_MODE)
-        self._swing_mode: Optional[str] = config.get(CONF_SCHEDULE_SWING_MODE)
-        self._min_temp: Optional[int] = config.get(CONF_SCHEDULE_MIN_TEMP)
-        self._max_temp: Optional[int] = config.get(CONF_SCHEDULE_MAX_TEMP)
-
-    @property
-    def time(self) -> timedelta:
-        return self._time
-
-    @property
-    def hvac_mode(self) -> Optional[str]:
-        return self._hvac_mode
-
-    @property
-    def fan_mode(self) -> Optional[str]:
-        return self._fan_mode
-
-    @property
-    def swing_mode(self) -> Optional[str]:
-        return self._swing_mode
-
-    @property
-    def min_temp(self) -> Optional[float]:
-        return self._min_temp
-
-    @property
-    def max_temp(self) -> Optional[float]:
-        return self._max_temp
-
-
-class ClimateSchedulerProfile:
-    def __init__(self, config: dict) -> None:
-        self._id: str = config.get(CONF_PROFILE_ID)
-        self._name: str = config.get(CONF_PROFILE_NAME)
-
-        self._default_hvac_mode = config.get(CONF_PROFILE_DEFAULT_HVAC_MODE)
-        self._default_fan_mode = config.get(CONF_PROFILE_DEFAULT_FAN_MODE)
-        self._default_swing_mode = config.get(CONF_PROFILE_DEFAULT_SWING_MODE)
-        self._default_min_temp = config.get(CONF_PROFILE_DEFAULT_MIN_TEMP)
-        self._default_max_temp = config.get(CONF_PROFILE_DEFAULT_MAX_TEMP)
-
-        # TODO: Validate schedule time < 24h. Do in config validator?
-        # TODO: Validate that no two schedules have same start time. Do in config validator?
-
-        self._schedules = [
-            ClimateShedulerSchedule(c) for c in config.get(CONF_PROFILE_SCHEDULE)
-        ]
-        self._schedules.sort(key=lambda x: x.time.total_seconds())
-
-    def compute_climate(self, time_of_day: timedelta) -> ComputedClimateData:
-        schedule = self._find_schedule(time_of_day)
-        if schedule is None:
-            return ComputedClimateData(
-                self._default_hvac_mode,
-                self._default_fan_mode,
-                self._default_swing_mode,
-                self._default_min_temp,
-                self._default_max_temp,
-            )
-
-        # TODO: Replace None values with profile defaults if any
-        return ComputedClimateData(
-            schedule.hvac_mode if schedule.hvac_mode else self._default_hvac_mode,
-            schedule.fan_mode if schedule.fan_mode else self._default_fan_mode,
-            schedule.swing_mode if schedule.swing_mode else self._default_swing_mode,
-            schedule.min_temp if schedule.min_temp else self._default_min_temp,
-            schedule.max_temp if schedule.max_temp else self._default_max_temp,
-        )
-
-    def get_trigger_times(self) -> List[timedelta]:
-        return [s.time for s in self._schedules]
-
-    def _find_schedule(
-        self, time_of_day: timedelta
-    ) -> Optional[ClimateShedulerSchedule]:
-        if len(self._schedules) == 0:
-            return None
-
-        if len(self._schedules) == 1:
-            return self._schedules[0]
-
-        # If the current time is earlier than the first schedule, wrap around and
-        # return the last schedule of the day
-        if time_of_day < self._schedules[0].time:
-            return self._schedules[-1]
-
-        for index, schedule in enumerate(self._schedules):
-            # Search for a schedule starting earlier than the current time of day
-            # which appears right before a schedule which starts later than the
-            # current time of the day or which is the last schedule of the day.
-
-            next_schedule = None
-            if index < len(self._schedules) - 1:
-                next_schedule = self._schedules[index + 1]
-
-            if time_of_day >= schedule.time and (
-                next_schedule is None or time_of_day < next_schedule.time
-            ):
-                return schedule
-
-        return None
-
-
 async def async_setup_platform(
     hass: HomeAssistant,
     config: dict,
@@ -439,7 +468,8 @@ async def async_setup_platform(
     cs_switch = ClimateSchedulerSwitch(hass, cs, config)
     async_add_entities([cs_switch], True)
 
-    await async_maybe_add_input_select(hass, cs_switch)
+    profile_select = await async_maybe_add_input_select(hass, cs_switch)
+    cs_switch.attach_input_select(profile_select)
 
     return True
 
@@ -465,8 +495,9 @@ async def async_maybe_add_input_select(
         # TODO: Initial value
         # TODO: Cool icon
     }
-    input_select = InputSelect(selector_config)
+    # TODO: Add names to selector instead of id?
 
+    input_select = InputSelect(selector_config)
     await input_select_platform.async_add_entities([input_select], True)
 
     return input_select
