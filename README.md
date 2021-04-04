@@ -38,12 +38,13 @@ switch:
       # See section bellow
 ```
 
-| Variable | Description | Type | Default |
-| name | Name of the scheduler | Required String | "Climate Scheduler" |
-| default_state | Initial state of scheduler | Optional Bool | False |
-| default_profile | Initial profile of scheduler | String | Optional String | First profile |
-| climate_entities | Climate entities to control | Optional List[String] | [] |
-| profiles | Climate profiles of the scheduler | Required List[Profiles] | |
+| Variable         | Description                       | Type                    | Default             |
+| ---------------- | --------------------------------- | ----------------------- | ------------------- | ------------- |
+| name             | Name of the scheduler             | Required String         | "Climate Scheduler" |
+| default_state    | Initial state of scheduler        | Optional Bool           | False               |
+| default_profile  | Initial profile of scheduler      | String                  | Optional String     | First profile |
+| climate_entities | Climate entities to control       | Optional List[String]   | []                  |
+| profiles         | Climate profiles of the scheduler | Required List[Profiles] |                     |
 
 TODO: Section for each param
 
@@ -63,14 +64,15 @@ Profiles define when and how to configure climate entities. At least one must be
         # See section bellow
 ```
 
-| Variable | Description | Type | Default |
-| id | Name of the profile. Must be unique in list. | Required String | |
-| default_hvac_mode | HVAC mode to use when none specified by schedule entry | Optional String | None |
-| default_fan_mode | Fan mode to use when none specified by schedule entry | Optional String | None |
-| default_swing_mode | Swing mode to use when none specified by schedule entry | Optional String | None |
-| default_min_temp | Default min temperature to set when none specified by schedule entry | Optional Float | None |
-| default_max_temp | Default max temperature to set when none specified by schedule entry | Optional Float | None |
-| schedule | List of schedule entries defining climate changes to apply at certain times | Optional List[Schedule] | None |
+| Variable           | Description                                                                 | Type                    | Default |
+| ------------------ | --------------------------------------------------------------------------- | ----------------------- | ------- |
+| id                 | Name of the profile. Must be unique in list.                                | Required String         |         |
+| default_hvac_mode  | HVAC mode to use when none specified by schedule entry                      | Optional String         | None    |
+| default_fan_mode   | Fan mode to use when none specified by schedule entry                       | Optional String         | None    |
+| default_swing_mode | Swing mode to use when none specified by schedule entry                     | Optional String         | None    |
+| default_min_temp   | Default min temperature to set when none specified by schedule entry        | Optional Float          | None    |
+| default_max_temp   | Default max temperature to set when none specified by schedule entry        | Optional Float          | None    |
+| schedule           | List of schedule entries defining climate changes to apply at certain times | Optional List[Schedule] | None    |
 
 TODO: Section for each param
 
@@ -94,13 +96,14 @@ A schedule is an optional list of times at which the target climate changes. If 
         min_temp: 17.5
 ```
 
-| Variable | Description | Type | Default |
-| time | Time where the climate must be updated | Required Time (HH:MM:SS) < 24:00:00| |
-| hvac_mode | HVAC mode to set at time | Optional String | Default value from profile if any, otherwise none |
-| fan_mode | Fan mode to set at time | Optional String | Default value from profile if any, otherwise none |
-| swing_mode | Swing mode to set at time | Optional String | Default value from profile if any, otherwise none |
-| min_temp | Min temperature to set at time. Use with relevant HVAC modes | Optional Float | Default value from profile if any, otherwise none |
-| max_temp | Man temperature to set at time. Use with relevant HVAC modes | Optional Float | Default value from profile if any, otherwise none |
+| Variable   | Description                                                  | Type                                | Default                                           |
+| ---------- | ------------------------------------------------------------ | ----------------------------------- | ------------------------------------------------- |
+| time       | Time where the climate must be updated                       | Required Time (HH:MM:SS) < 24:00:00 |                                                   |
+| hvac_mode  | HVAC mode to set at time                                     | Optional String                     | Default value from profile if any, otherwise none |
+| fan_mode   | Fan mode to set at time                                      | Optional String                     | Default value from profile if any, otherwise none |
+| swing_mode | Swing mode to set at time                                    | Optional String                     | Default value from profile if any, otherwise none |
+| min_temp   | Min temperature to set at time. Use with relevant HVAC modes | Optional Float                      | Default value from profile if any, otherwise none |
+| max_temp   | Man temperature to set at time. Use with relevant HVAC modes | Optional Float                      | Default value from profile if any, otherwise none |
 
 TODO: Section for each param
 
