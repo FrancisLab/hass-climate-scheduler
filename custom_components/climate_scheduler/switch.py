@@ -6,7 +6,11 @@ Climate Schduler Switch for Home-Assistant.
 import asyncio
 from collections import namedtuple
 from datetime import timedelta
-from homeassistant.components.input_select import CONF_OPTIONS, InputSelect
+from homeassistant.components.input_select import (
+    CONF_INITIAL,
+    CONF_OPTIONS,
+    InputSelect,
+)
 from homeassistant.components.climate.const import (
     ATTR_FAN_MODE,
     ATTR_HVAC_MODE,
@@ -27,10 +31,13 @@ from homeassistant.components.switch import SwitchEntity
 from homeassistant.components.climate import DOMAIN as CLIMATE_DOMAIN
 from homeassistant.const import (
     ATTR_ENTITY_ID,
+    ATTR_OPTION,
     ATTR_TEMPERATURE,
+    CONF_ICON,
     CONF_ID,
     CONF_NAME,
     CONF_PLATFORM,
+    SERVICE_SELECT_OPTION,
     STATE_OFF,
     STATE_ON,
 )
@@ -51,6 +58,8 @@ from . import (
     DATA_CLIMATE_SCHEDULER,
 )
 
+from homeassistant.components.input_select import DOMAIN as INPUT_SELECT_DOMAIN
+
 ICON = "mdi:calendar-clock"
 
 CONF_CLIMATE_ENTITIES = "climate_entities"
@@ -58,7 +67,6 @@ CONF_DEFAULT_STATE = "default_state"
 CONF_DEFAULT_PROFILE = "default_profile"
 CONF_PROFILES = "profiles"
 
-CONF_PROFILE_NAME = "name"
 CONF_PROFILE_ID = "id"
 CONF_PROFILE_SCHEDULE = "schedule"
 CONF_PROFILE_DEFAULT_HVAC_MODE = "default_hvac_mode"
@@ -163,7 +171,6 @@ class ClimateShedulerSchedule:
 class ClimateSchedulerProfile:
     def __init__(self, config: dict) -> None:
         self._id: str = config.get(CONF_PROFILE_ID)
-        self._name: str = config.get(CONF_PROFILE_NAME)
 
         self._default_hvac_mode = config.get(CONF_PROFILE_DEFAULT_HVAC_MODE)
         self._default_fan_mode = config.get(CONF_PROFILE_DEFAULT_FAN_MODE)
@@ -173,6 +180,7 @@ class ClimateSchedulerProfile:
 
         # TODO: Validate schedule time < 24h. Do in config validator?
         # TODO: Validate that no two schedules have same start time. Do in config validator?
+        # TODO: Validate name & id are unique
 
         self._schedules = [
             ClimateShedulerSchedule(c) for c in config.get(CONF_PROFILE_SCHEDULE)
@@ -194,7 +202,6 @@ class ClimateSchedulerProfile:
                 self._default_max_temp,
             )
 
-        # TODO: Replace None values with profile defaults if any
         return ComputedClimateData(
             schedule.hvac_mode if schedule.hvac_mode else self._default_hvac_mode,
             schedule.fan_mode if schedule.fan_mode else self._default_fan_mode,
@@ -241,6 +248,9 @@ ATTR_IS_ON = "is_on"
 ATTR_PROFILE = "current_profile"
 ATTR_PROFILE_OPTIONS = "profile_options"
 # TODO: Add an "explanation string" attribute and property
+
+# TODO: Strings...
+NONE_PROFILE = "Disabled"
 
 
 class ClimateSchedulerSwitch(SwitchEntity, RestoreEntity):
@@ -294,8 +304,6 @@ class ClimateSchedulerSwitch(SwitchEntity, RestoreEntity):
         self._schedule_tracker_remove_callbacks: List[Callable[[], None]] = []
         self._update_schedule_trackers()
 
-        # TODO: Can I create the input_select here instead?
-
     @property
     def entity_id(self) -> str:
         return "switch." + self.entity_id_suffix
@@ -339,14 +347,61 @@ class ClimateSchedulerSwitch(SwitchEntity, RestoreEntity):
             ATTR_PROFILE_OPTIONS: self.profile_options,
         }
 
-    def attach_input_select(self, selector: InputSelect) -> None:
-        """Attach input select entity used to pick profiles"""
-        if selector is None:
+    async def async_create_profile_selector(
+        self,
+    ) -> None:
+        """Create input_select entity for picking profiles"""
+
+        platforms = async_get_platforms(self._hass, INPUT_SELECT_DOMAIN)
+        if len(platforms) == 0:
+            logging.warn("No input select platform, not adding selectors")
+            return
+        input_select_platform: EntityPlatform = platforms[0]
+
+        selector_config = {
+            CONF_ID: "input_select." + self.entity_id_suffix + "_profile_selector",
+            CONF_NAME: self.name + " Climate Profile Selector",
+            CONF_OPTIONS: self.profile_options + [NONE_PROFILE],
+            CONF_ICON: "mdi:mdiFormSelect ",
+            CONF_INITIAL: self.current_profile_id or NONE_PROFILE,
+        }
+        # TODO: Add names to selector instead of id?
+
+        self._profile_selector = InputSelect(selector_config)
+        await input_select_platform.async_add_entities([self._profile_selector])
+
+        # Subscribe for profile changes
+        self._profile_tracker_remover = async_track_state_change(
+            self._hass,
+            [self._profile_selector.entity_id],
+            self._async_on_profile_selector_change,
+        )
+
+    async def async_added_to_hass(self):
+        """Call when entity about to be added to hass. Used to restore state."""
+        # If not None, we got an initial value.
+        await super().async_added_to_hass()
+        if self._state is not None:
             return
 
-        self._profile_tracker_remover = async_track_state_change(
-            self._hass, [selector.entity_id], self._async_on_profile_selector_change
-        )
+        previous_state = await self.async_get_last_state()
+        previous_attributes = previous_state.attributes
+
+        if previous_state.state:
+            self._state = previous_state.state
+
+        if ATTR_PROFILE in previous_attributes:
+            await self._async_update_profile(previous_attributes[ATTR_PROFILE])
+            await self._hass.services.async_call(
+                INPUT_SELECT_DOMAIN,
+                SERVICE_SELECT_OPTION,
+                {
+                    ATTR_ENTITY_ID: self._profile_selector.entity_id,
+                    ATTR_OPTION: self.current_profile_id or NONE_PROFILE,
+                },
+            )
+
+        self.async_schedule_update_ha_state()
 
     async def _async_on_profile_selector_change(
         self, entity_id: str, old_state: State, new_state: State
@@ -387,24 +442,6 @@ class ClimateSchedulerSwitch(SwitchEntity, RestoreEntity):
                     second=schedule.seconds % 60,
                 )
             )
-
-    async def async_added_to_hass(self):
-        """Call when entity about to be added to hass. Used to restore state."""
-        # If not None, we got an initial value.
-        await super().async_added_to_hass()
-        if self._state is not None:
-            return
-
-        previous_state = await self.async_get_last_state()
-        previous_attributes = previous_state.attributes
-
-        if previous_state.state:
-            self._state = previous_state.state
-
-        if ATTR_PROFILE in previous_attributes:
-            await self._async_update_profile(previous_attributes[ATTR_PROFILE])
-
-        self.async_schedule_update_ha_state()
 
     async def async_turn_on(self, **kwargs) -> None:
         _LOGGER.debug(self.entity_id + ": Turn on")
@@ -527,40 +564,6 @@ async def async_setup_platform(
     cs_switch = ClimateSchedulerSwitch(hass, cs, config)
     async_add_entities([cs_switch], True)
 
-    await async_maybe_add_input_select(hass, cs_switch)
+    await cs_switch.async_create_profile_selector()
 
     return True
-
-
-async def async_maybe_add_input_select(
-    hass: HomeAssistant,
-    scheduler: ClimateSchedulerSwitch,
-) -> None:
-    """Create input_select entity for picking profiles and attach it to the scheduler"""
-    # TODO: Move to ClimateScheduleSwitch
-
-    INPUT_SELECT = "input_select"
-    platforms = async_get_platforms(hass, INPUT_SELECT)
-    if len(platforms) == 0:
-        logging.warn("No input select platform, not adding selectors")
-        return
-    input_select_platform: EntityPlatform = platforms[0]
-
-    # TODO: Put None as an option, make it a reserved id
-
-    selector_config = {
-        CONF_ID: "input_select.climate_scheduler_"
-        + scheduler.entity_id_suffix
-        + "_profile_selector",
-        CONF_NAME: scheduler.name + " Climate Profile Selector",
-        CONF_OPTIONS: scheduler.profile_options,
-        # TODO: Cool icon
-    }
-    # TODO: Add names to selector instead of id?
-
-    input_select = InputSelect(selector_config)
-    await input_select_platform.async_add_entities([input_select], True)
-
-    # TODO: Set to current profile ID
-
-    scheduler.attach_input_select(input_select)
