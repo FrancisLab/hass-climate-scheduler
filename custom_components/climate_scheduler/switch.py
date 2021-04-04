@@ -372,6 +372,9 @@ class ClimateSchedulerSwitch(SwitchEntity, RestoreEntity):
     ) -> None:
         """Create input_select entity for picking profiles"""
 
+        # TODO: Fix first-time setup issue where input_select doesn't work
+        #       if no other select_input entitites exist
+
         platforms = async_get_platforms(self._hass, INPUT_SELECT_DOMAIN)
         if len(platforms) == 0:
             logging.warn("No input select platform, not adding selectors")
@@ -491,6 +494,7 @@ class ClimateSchedulerSwitch(SwitchEntity, RestoreEntity):
             return
 
         # TODO: Track temperature of entities. Only heat/cool if under/above threshold
+        # TODO: Allow specifying a desired idle mode (e.g. fan-only for allergies, forest fire, etc.)
 
         dt = now()
         time_of_day = timedelta(hours=dt.hour, minutes=dt.minute, seconds=dt.second)
