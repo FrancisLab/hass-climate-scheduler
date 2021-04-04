@@ -372,9 +372,6 @@ class ClimateSchedulerSwitch(SwitchEntity, RestoreEntity):
     ) -> None:
         """Create input_select entity for picking profiles"""
 
-        # TODO: Fix first-time setup issue where input_select doesn't work
-        #       if no other select_input entitites exist
-
         platforms = async_get_platforms(self._hass, INPUT_SELECT_DOMAIN)
         if len(platforms) == 0:
             logging.warn("No input select platform, not adding selectors")
