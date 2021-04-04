@@ -160,9 +160,11 @@ schedule:
     min_temp: 17.5
 ```
 
-### Empty Profile as Override
+### Overrides
 
-You can use an empty profile as a manual override. With an empty profile the scheduler won't make any changes to it's climate entities. Note that turning off the scheduler switch can also be used as an override.
+It's often useful to disable a scheduler and assume manual control over climate entities. This can either be done by turning off the climate scheduler entity directly, or by defining and choosing an empty profile. In both cases, the scheduler won't make any changes to its assigned climate entities.
+
+Override profile example:
 
 ```yaml
 - platform: climate_scheduler
@@ -171,12 +173,17 @@ You can use an empty profile as a manual override. With an empty profile the sch
   climate_entities:
     - climate.living_room
   profiles:
+    # Empty profile to use as override
     - id: "Override"
-    - !include climate_profiles/common/heating.yaml
-    - !include climate_profiles/common/cooling.yaml
 ```
 
-### Controlling Schedulers With Automation
+### Controlling Schedulers via UI
+
+You can add the climate scheduler entity and its profile picker entity to your LoveLace UI to manually control them.
+
+![Climate Scheduler UI](https://github.com/FrancisLab/hass-climate-scheduler/blob/main/climate_scheduler.png)
+
+### Controlling Schedulers via Automation
 
 Each scheduler registers a switch entity. The switch can be controlled with switch service calls:
 
@@ -187,9 +194,4 @@ Each scheduler registers a switch entity. The switch can be controlled with swit
 Each scheduler registers a select_input entity for picking profiles. The profiles can be picked with input_select service calls:
 
 - input_select.select_option
-
-### Lovelace Vertical Stack
-
-Use a vertical stack to show your climate entities along with the scheduler, and its profile picker.
-
-![Climate Scheduler UI](https://github.com/FrancisLab/hass-climate-scheduler/blob/main/climate_scheduler.png)
+- And other less relevant input_select service calls. (Using input_select.set_options to change the content of the picker might result in undefined behavior)
