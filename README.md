@@ -17,7 +17,8 @@ climate_scheduler:
   update_interval: "00:10:00"
 ```
 
-| Variable | Description | Type | Default |
+| Variable        | Description                                                     | Type                              | Default  |
+| --------------- | --------------------------------------------------------------- | --------------------------------- | -------- |
 | update_interval | How often schedulers should attempt to update climate entities. | (Optional) Positive Time HH:MM:SS | 00:15:00 |
 
 ### Scheduler Configuration
@@ -38,13 +39,13 @@ switch:
       # See section bellow
 ```
 
-| Variable         | Description                       | Type                    | Default             |
-| ---------------- | --------------------------------- | ----------------------- | ------------------- | ------------- |
-| name             | Name of the scheduler             | Required String         | "Climate Scheduler" |
-| default_state    | Initial state of scheduler        | Optional Bool           | False               |
-| default_profile  | Initial profile of scheduler      | String                  | Optional String     | First profile |
-| climate_entities | Climate entities to control       | Optional List[String]   | []                  |
-| profiles         | Climate profiles of the scheduler | Required List[Profiles] |                     |
+| Variable         | Description                       | Type                    | Default               |
+| ---------------- | --------------------------------- | ----------------------- | --------------------- |
+| name             | Name of the scheduler             | Required String         | "Climate Scheduler"   |
+| default_state    | Initial state of scheduler        | Optional Bool           | False                 |
+| default_profile  | Initial profile of scheduler      | String                  | Optional String       |
+| climate_entities | Climate entities to control       | Optional List[String]   | []                    |
+| profiles         | Climate profiles of the scheduler | Required List[Profiles] | First profile in list |
 
 TODO: Section for each param
 
