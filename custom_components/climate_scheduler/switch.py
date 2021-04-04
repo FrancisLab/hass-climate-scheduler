@@ -17,6 +17,7 @@ from homeassistant.components.climate.const import (
     ATTR_MAX_TEMP,
     ATTR_MIN_TEMP,
     ATTR_SWING_MODE,
+    HVAC_MODES,
     SERVICE_SET_FAN_MODE,
     SERVICE_SET_HVAC_MODE,
     SERVICE_SET_SWING_MODE,
@@ -82,15 +83,39 @@ CONF_SCHEDULE_MAX_TEMP = "max_temperature"
 CONF_SCHEDULE_FAN_MODE = "fan_mode"
 CONF_SCHEDULE_SWING_MODE = "swing_mode"
 
+
+def less_than_24h(delta: timedelta) -> timedelta:
+    if delta.total_seconds() >= 24 * 60 * 60:
+        raise vol.Invalid("Schedule time must be less than 24h")
+    return delta
+
+
+def unique_profiles(profiles: dict) -> dict:
+    names = [p.get(CONF_PROFILE_ID) for p in profiles]
+    if len(names) != len(set(names)):
+        raise vol.Invalid("Profile names must be unique within scheduler")
+    return profiles
+
+
+def unique_schedule_times(schedules: dict) -> dict:
+    times = [s.get(CONF_SCHEDULE_TIME).total_seconds() for s in schedules]
+    if (len(times)) != len(set(times)):
+        raise vol.Invalid("Schedule times must be unique within a profile")
+    return schedules
+
+
 SCHEDULE_SCHEMA = vol.Schema(
     [
         {
-            vol.Required(CONF_SCHEDULE_TIME): cv.positive_time_period,  # Validator?
-            vol.Optional(CONF_SCHEDULE_HVAC): cv.string,  # Validator?
+            vol.Required(CONF_SCHEDULE_TIME): vol.All(
+                cv.positive_time_period,
+                less_than_24h,
+            ),
+            vol.Optional(CONF_SCHEDULE_HVAC): vol.All(cv.string, vol.In(HVAC_MODES)),
             vol.Optional(CONF_SCHEDULE_MIN_TEMP): vol.Coerce(float),
             vol.Optional(CONF_SCHEDULE_MAX_TEMP): vol.Coerce(float),
-            vol.Optional(CONF_SCHEDULE_FAN_MODE): cv.string,  # Validator?
-            vol.Optional(CONF_SCHEDULE_SWING_MODE): cv.string,  # Validator?
+            vol.Optional(CONF_SCHEDULE_FAN_MODE): cv.string,
+            vol.Optional(CONF_SCHEDULE_SWING_MODE): cv.string,
         }
     ]
 )
@@ -98,12 +123,15 @@ SCHEDULE_SCHEMA = vol.Schema(
 PROFILES_SCHEMA = vol.Schema(
     [
         {
-            vol.Required(CONF_PROFILE_ID): str,
-            vol.Optional(CONF_NAME, default="Unamed Profile"): str,
-            vol.Required(CONF_PROFILE_SCHEDULE): SCHEDULE_SCHEMA,
-            vol.Optional(CONF_PROFILE_DEFAULT_HVAC_MODE): str,  # Validator?
-            vol.Optional(CONF_PROFILE_DEFAULT_FAN_MODE): str,  # Validator?
-            vol.Optional(CONF_PROFILE_DEFAULT_SWING_MODE): str,  # Validator?
+            vol.Required(CONF_PROFILE_ID): vol.All(cv.string),
+            vol.Optional(CONF_PROFILE_SCHEDULE, default=[]): vol.All(
+                SCHEDULE_SCHEMA, unique_schedule_times
+            ),
+            vol.Optional(CONF_PROFILE_DEFAULT_HVAC_MODE): vol.All(
+                cv.string, vol.In(HVAC_MODES)
+            ),
+            vol.Optional(CONF_PROFILE_DEFAULT_FAN_MODE): cv.string,
+            vol.Optional(CONF_PROFILE_DEFAULT_SWING_MODE): cv.string,
             vol.Optional(CONF_PROFILE_DEFAULT_MIN_TEMP): vol.Coerce(float),
             vol.Optional(CONF_PROFILE_DEFAULT_MAX_TEMP): vol.Coerce(float),
         }
@@ -113,11 +141,13 @@ PROFILES_SCHEMA = vol.Schema(
 PLATFORM_SCHEMA = vol.Schema(
     {
         vol.Required(CONF_PLATFORM): "climate_scheduler",
+        vol.Required(CONF_PROFILES): vol.All(
+            PROFILES_SCHEMA, unique_profiles, vol.Length(min=1)
+        ),
         vol.Optional(CONF_NAME, default="Climate Scheduler"): cv.string,
         vol.Optional(CONF_DEFAULT_STATE, default=False): cv.boolean,
         vol.Optional(CONF_DEFAULT_PROFILE): cv.string,
         vol.Optional(CONF_CLIMATE_ENTITIES): cv.entity_ids,
-        vol.Optional(CONF_PROFILES): PROFILES_SCHEMA,
     },
     extra=vol.ALLOW_EXTRA,
 )
@@ -165,9 +195,6 @@ class ClimateShedulerSchedule:
         return self._max_temp
 
 
-# TODO: Create a special NoneProfile?
-
-
 class ClimateSchedulerProfile:
     def __init__(self, config: dict) -> None:
         self._id: str = config.get(CONF_PROFILE_ID)
@@ -177,10 +204,6 @@ class ClimateSchedulerProfile:
         self._default_swing_mode = config.get(CONF_PROFILE_DEFAULT_SWING_MODE)
         self._default_min_temp = config.get(CONF_PROFILE_DEFAULT_MIN_TEMP)
         self._default_max_temp = config.get(CONF_PROFILE_DEFAULT_MAX_TEMP)
-
-        # TODO: Validate schedule time < 24h. Do in config validator?
-        # TODO: Validate that no two schedules have same start time. Do in config validator?
-        # TODO: Validate name & id are unique
 
         self._schedules = [
             ClimateShedulerSchedule(c) for c in config.get(CONF_PROFILE_SCHEDULE)
@@ -248,9 +271,6 @@ ATTR_IS_ON = "is_on"
 ATTR_PROFILE = "current_profile"
 ATTR_PROFILE_OPTIONS = "profile_options"
 # TODO: Add an "explanation string" attribute and property
-
-# TODO: Strings...
-NONE_PROFILE = "Disabled"
 
 
 class ClimateSchedulerSwitch(SwitchEntity, RestoreEntity):
@@ -331,13 +351,13 @@ class ClimateSchedulerSwitch(SwitchEntity, RestoreEntity):
     @property
     def state(self) -> Optional[str]:
         if self._state is None:
-            return self._default_state if self._default_state else STATE_OFF
+            return self._default_state or STATE_OFF
         return self._state
 
     @property
     def current_profile_id(self) -> Optional[str]:
         if self._current_profile is None:
-            return self._default_profile_id if self._default_profile_id else None
+            return self._default_profile_id or list(self._profiles.keys())[0]
         return self._current_profile.profile_id
 
     @property
@@ -361,11 +381,10 @@ class ClimateSchedulerSwitch(SwitchEntity, RestoreEntity):
         selector_config = {
             CONF_ID: "input_select." + self.entity_id_suffix + "_profile_selector",
             CONF_NAME: self.name + " Climate Profile Selector",
-            CONF_OPTIONS: self.profile_options + [NONE_PROFILE],
+            CONF_OPTIONS: self.profile_options,
             CONF_ICON: "mdi:mdiFormSelect ",
-            CONF_INITIAL: self.current_profile_id or NONE_PROFILE,
+            CONF_INITIAL: self.current_profile_id,
         }
-        # TODO: Add names to selector instead of id?
 
         self._profile_selector = InputSelect(selector_config)
         await input_select_platform.async_add_entities([self._profile_selector])
@@ -397,7 +416,7 @@ class ClimateSchedulerSwitch(SwitchEntity, RestoreEntity):
                 SERVICE_SELECT_OPTION,
                 {
                     ATTR_ENTITY_ID: self._profile_selector.entity_id,
-                    ATTR_OPTION: self.current_profile_id or NONE_PROFILE,
+                    ATTR_OPTION: self.current_profile_id,
                 },
             )
 
