@@ -78,8 +78,8 @@ CONF_PROFILE_DEFAULT_MAX_TEMP = "default_max_temp"
 
 CONF_SCHEDULE_TIME = "time"
 CONF_SCHEDULE_HVAC = "hvac_mode"
-CONF_SCHEDULE_MIN_TEMP = "min_temperature"
-CONF_SCHEDULE_MAX_TEMP = "max_temperature"
+CONF_SCHEDULE_MIN_TEMP = "min_temp"
+CONF_SCHEDULE_MAX_TEMP = "max_temp"
 CONF_SCHEDULE_FAN_MODE = "fan_mode"
 CONF_SCHEDULE_SWING_MODE = "swing_mode"
 
