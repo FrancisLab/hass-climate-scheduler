@@ -404,6 +404,9 @@ class ClimateSchedulerSwitch(SwitchEntity, RestoreEntity):
             return
 
         previous_state = await self.async_get_last_state()
+        if previous_state is None:
+            return
+
         previous_attributes = previous_state.attributes
 
         if previous_state.state:
