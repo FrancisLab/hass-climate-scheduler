@@ -8,7 +8,7 @@ A [Home Assistant](https://www.home-assistant.io/) component to facilitate the a
 
 Install the custom component using [HACS](https://hacs.xyz/) (recommended), or manually by copying `custom_components\climate_scheduler` to your `config\custom_components` directory.
 
-TODO: HACs badge & integration
+[![hacs_badge](https://img.shields.io/badge/HACS-Custom-orange.svg?style=for-the-badge)](https://github.com/custom-components/hacs)
 
 ## Configuration
 
