@@ -1,6 +1,6 @@
 # Home Assistant Climate Scheduler
 
-A [Home Assistant](https://www.home-assistant.io/) component to facilitate the automation of climate entities. A scheduler controls its assigned climate entities based on user defined profiles and schedules. Each scheduler is a represented as a switch entity which can be toggled on or off. Each scheduler registers an input_select entity which can be used to switch between profiles.
+A [Home Assistant](https://www.home-assistant.io/) component to facilitate the automation of climate entities. A scheduler controls its assigned climate entities based on user defined profiles and schedules. Each scheduler is represented as a switch entity which can be toggled on or off. Each scheduler registers an input_select entity which can be used to switch between profiles.
 
 ![Climate Scheduler UI](https://github.com/FrancisLab/hass-climate-scheduler/blob/main/climate_scheduler.png)
 
@@ -25,7 +25,7 @@ climate_scheduler:
 
 ### Scheduler Configuration
 
-Each individual scheduler is configured as a switch component. Each scheduler must be assigned climate entities to control and at least one profile.
+Each scheduler is registered as a switch entity. Each scheduler must be assigned at least one profile.
 
 **Schedulers**
 
@@ -41,17 +41,17 @@ switch:
       # See Profiles section
 ```
 
-| Variable         | Description                       | Type                    | Default               |
-| ---------------- | --------------------------------- | ----------------------- | --------------------- |
-| name             | Name of the scheduler             | Required String         | "Climate Scheduler"   |
-| default_state    | Initial state of scheduler        | Optional Bool           | False                 |
-| default_profile  | Initial profile of scheduler      | Optional String         | First profile in list |
-| climate_entities | Climate entities to control       | Optional List[String]   | []                    |
-| profiles         | Climate profiles of the scheduler | Required List[Profiles] |                       |
+| Variable         | Description                       | Type                    | Default             |
+| ---------------- | --------------------------------- | ----------------------- | ------------------- |
+| **profiles**     | Climate profiles of the scheduler | Required List[Profiles] |                     |
+| name             | Name of the scheduler             | Optional String         | "Climate Scheduler" |
+| default_state    | Initial state of scheduler        | Optional Bool           | False               |
+| default_profile  | Initial profile of scheduler      | Optional String         | Id of 1st profile   |
+| climate_entities | Climate entities to control       | Optional List[String]   | []                  |
 
 **Profiles**
 
-Profiles define when and how to configure climate entities. At least one must be provided per scheduler. Multiple profiles can be provided to make it easy to swith between configurations via UI or automations.
+Profiles define when and how to configure climate entities. At least one must be provided per scheduler. Multiple profiles can be defined to make it easy to swith between different presets via UI or automations.
 
 ```yaml
     ...
@@ -67,7 +67,7 @@ Profiles define when and how to configure climate entities. At least one must be
 
 | Variable           | Description                                                                 | Type                     | Default |
 | ------------------ | --------------------------------------------------------------------------- | ------------------------ | ------- |
-| id                 | Name of the profile. Must be unique in list.                                | Required String          |         |
+| **id**             | Name of the profile. Must be unique in list.                                | Required String          |         |
 | default_hvac_mode  | HVAC mode to use when none specified by schedule entry                      | Optional String          | None    |
 | default_fan_mode   | Fan mode to use when none specified by schedule entry                       | Optional String          | None    |
 | default_swing_mode | Swing mode to use when none specified by schedule entry                     | Optional String          | None    |
@@ -97,12 +97,12 @@ A schedule is an optional list of times at which the target climate changes. If 
 
 | Variable   | Description                                                  | Type                                | Default                                           |
 | ---------- | ------------------------------------------------------------ | ----------------------------------- | ------------------------------------------------- |
-| time       | Time where the climate must be updated                       | Required Time (HH:MM:SS) < 24:00:00 |                                                   |
+| **time**   | Time where the climate must be updated                       | Required Time (HH:MM:SS) < 24:00:00 |                                                   |
 | hvac_mode  | HVAC mode to set at time                                     | Optional String                     | Default value from profile if any, otherwise none |
 | fan_mode   | Fan mode to set at time                                      | Optional String                     | Default value from profile if any, otherwise none |
 | swing_mode | Swing mode to set at time                                    | Optional String                     | Default value from profile if any, otherwise none |
 | min_temp   | Min temperature to set at time. Use with relevant HVAC modes | Optional Float                      | Default value from profile if any, otherwise none |
-| max_temp   | Man temperature to set at time. Use with relevant HVAC modes | Optional Float                      | Default value from profile if any, otherwise none |
+| max_temp   | Max temperature to set at time. Use with relevant HVAC modes | Optional Float                      | Default value from profile if any, otherwise none |
 
 ## Tips & Tricks
 
@@ -173,8 +173,44 @@ Override profile example:
   climate_entities:
     - climate.living_room
   profiles:
-    # Empty profile to use as override
-    - id: "Override"
+    - id: "Away"
+      default_hvac_mode: "heat_cool"
+      default_fan_mode: "auto"
+      default_swing_mode: "auto"
+      default_min_temp: 17
+      default_max_temp: 27
+```
+
+### Static Profiles
+
+Profiles with a constant climate configuration can be defined either with default values or with a single schedule entry.
+
+Default Values:
+
+```yaml
+  ...
+  profiles:
+    - id: "Away"
+      default_hvac_mode: "heat_cool"
+      default_fan_mode: "auto"
+      default_swing_mode: "auto"
+      default_min_temp: 17
+      default_max_temp: 27
+```
+
+Single Schedule Entry:
+
+```yaml
+  ...
+  profiles:
+    - id: "Away"
+      schedule:
+        - time: "00:00:00"
+          hvac_mode: "heat_cool"
+          fan_mode: "auto"
+          swing_mode: "auto"
+          min_temp: 17
+          max_temp: 27
 ```
 
 ### Controlling Schedulers via UI
