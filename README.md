@@ -167,25 +167,16 @@ It's often useful to disable a scheduler and assume manual control over climate 
 Override profile example:
 
 ```yaml
-- platform: climate_scheduler
-  name: Living Room
-  default_profile: "Override"
-  climate_entities:
-    - climate.living_room
+  ...
   profiles:
-    - id: "Away"
-      default_hvac_mode: "heat_cool"
-      default_fan_mode: "auto"
-      default_swing_mode: "auto"
-      default_min_temp: 17
-      default_max_temp: 27
+    - id: "Override"
 ```
 
 ### Static Profiles
 
 Profiles with a constant climate configuration can be defined either with default values or with a single schedule entry.
 
-Default Values:
+\*\*Default Values:
 
 ```yaml
   ...
