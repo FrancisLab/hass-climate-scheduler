@@ -14,9 +14,9 @@ from homeassistant.components.input_select import (
 from homeassistant.components.climate.const import (
     ATTR_FAN_MODE,
     ATTR_HVAC_MODE,
-    ATTR_MAX_TEMP,
-    ATTR_MIN_TEMP,
     ATTR_SWING_MODE,
+    ATTR_TARGET_TEMP_HIGH,
+    ATTR_TARGET_TEMP_LOW,
     HVAC_MODES,
     SERVICE_SET_FAN_MODE,
     SERVICE_SET_HVAC_MODE,
@@ -542,14 +542,14 @@ class ClimateSchedulerSwitch(SwitchEntity, RestoreEntity):
         if min_temperature is None and max_temperature is None:
             return
 
-        data = {ATTR_ENTITY_ID: entity}
+        data = {ATTR_ENTITY_ID: entity, ATTR_HVAC_MODE: hvac_mode}
         if hvac_mode == "heat":
             data[ATTR_TEMPERATURE] = min_temperature
         elif hvac_mode == "cool":
             data[ATTR_TEMPERATURE] = max_temperature
         elif hvac_mode == "heat_cool":
-            data[ATTR_MIN_TEMP] = min_temperature
-            data[ATTR_MAX_TEMP] = max_temperature
+            data[ATTR_TARGET_TEMP_LOW] = min_temperature
+            data[ATTR_TARGET_TEMP_HIGH] = max_temperature
 
         await self._hass.services.async_call(
             CLIMATE_DOMAIN, SERVICE_SET_TEMPERATURE, data
