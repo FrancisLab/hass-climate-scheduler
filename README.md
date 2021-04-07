@@ -176,7 +176,7 @@ Override profile example:
 
 Profiles with a constant climate configuration can be defined either with default values or with a single schedule entry.
 
-\*\*Default Values:
+Default Values:
 
 ```yaml
   ...
