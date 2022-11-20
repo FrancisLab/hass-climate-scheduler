@@ -386,7 +386,7 @@ class ClimateSchedulerSwitch(SwitchEntity, RestoreEntity):
             CONF_INITIAL: self.current_profile_id,
         }
 
-        self._profile_selector = InputSelect(selector_config)
+        self._profile_selector = InputSelect.from_yaml(selector_config)
         await input_select_platform.async_add_entities([self._profile_selector])
 
         # Subscribe for profile changes
