@@ -498,10 +498,10 @@ class ClimateSchedulerSwitch(SwitchEntity, RestoreEntity):
         climate_data = self._current_profile.compute_climate(time_of_day)
 
         update_tasks = [
-            self._async_update_climate_entity(entity, climate_data)
+            asyncio.create_task(self._async_update_climate_entity(entity, climate_data))
             for entity in self._climate_entities
         ]
-        await asyncio.wait(update_tasks)
+        await asyncio.gather(*update_tasks)
 
     async def _async_update_climate_entity(
         self, entity: str, data: Optional[ComputedClimateData]
