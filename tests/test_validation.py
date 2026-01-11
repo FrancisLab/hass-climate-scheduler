@@ -2,7 +2,7 @@
 from datetime import timedelta
 import pytest
 import voluptuous as vol
-from homeassistant.components.climate.const import HVAC_MODE_HEAT
+from homeassistant.components.climate import HVACMode
 
 from custom_components.climate_scheduler.switch import (
     less_than_24h,
@@ -60,7 +60,7 @@ def test_unique_schedule_times_invalid():
 def test_schedule_schema_valid():
     schedule = {
         CONF_SCHEDULE_TIME: timedelta(hours=1),
-        CONF_SCHEDULE_HVAC: HVAC_MODE_HEAT,
+        CONF_SCHEDULE_HVAC: HVACMode.HEAT,
         CONF_SCHEDULE_MIN_TEMP: 20
     }
     assert SCHEDULE_SCHEMA([schedule]) == [schedule]
@@ -71,7 +71,7 @@ def test_profiles_schema_valid():
         CONF_PROFILE_SCHEDULE: [
             {
                 CONF_SCHEDULE_TIME: timedelta(hours=1),
-                CONF_SCHEDULE_HVAC: HVAC_MODE_HEAT
+                CONF_SCHEDULE_HVAC: HVACMode.HEAT
             }
         ]
     }

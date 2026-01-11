@@ -287,7 +287,7 @@ class ClimateSchedulerSwitch(SwitchEntity, RestoreEntity):
         # Simple configs
         self._name: str = config.get(CONF_NAME)
 
-        logging.debug("Initializing Climate Scheduler switch {}".format(self.entity_id))
+        _LOGGER.info("Initializing Climate Scheduler switch {}".format(self.entity_id))
         self._climate_entities: List[str] = config.get(CONF_CLIMATE_ENTITIES)
 
         # Setup state
@@ -305,7 +305,7 @@ class ClimateSchedulerSwitch(SwitchEntity, RestoreEntity):
         # Setup default profile
         self._default_profile_id: Optional[str] = config.get(CONF_DEFAULT_PROFILE)
         if self._default_profile_id not in self._profiles:
-            logging.debug(
+            _LOGGER.info(
                 "Ignoring invalid default profile id {}".format(
                     self._default_profile_id
                 )
@@ -436,6 +436,8 @@ class ClimateSchedulerSwitch(SwitchEntity, RestoreEntity):
         new_state = event.data.get("new_state")
         if new_state is None:
             return
+
+        _LOGGER.info("Profile selector changed to {}".format(new_state.state))
         await self._async_update_profile(new_state.state)
 
     async def _async_update_profile(self, new_profile_id: str) -> None:
@@ -473,28 +475,28 @@ class ClimateSchedulerSwitch(SwitchEntity, RestoreEntity):
             )
 
     async def async_turn_on(self, **kwargs) -> None:
-        _LOGGER.debug(self.entity_id + ": Turn on")
+        _LOGGER.info(self.entity_id + ": Turn on")
 
         self._state = STATE_ON
         await self.async_update_climate()
         self.async_schedule_update_ha_state()
 
     async def async_turn_off(self, **kwargs) -> None:
-        _LOGGER.debug(self.entity_id + ": Turn off")
+        _LOGGER.info(self.entity_id + ": Turn off")
 
         self._state = STATE_OFF
         self.async_schedule_update_ha_state()
 
     async def async_update_climate(self, *args, **kwargs) -> None:
         """Update all climate entities controlled by the swtich"""
-        _LOGGER.debug(self.entity_id + ": Updating climate")
+        _LOGGER.info(self.entity_id + ": Updating climate")
 
         if not self.is_on:
-            _LOGGER.debug(self.entity_id + ": Disabled")
+            _LOGGER.info(self.entity_id + ": Disabled")
             return
 
         if self._current_profile is None:
-            _LOGGER.debug(self.entity_id + ": No profile")
+            _LOGGER.info(self.entity_id + ": No profile")
             return
 
         # TODO: Track temperature of entities. Only heat/cool if under/above threshold
@@ -529,6 +531,7 @@ class ClimateSchedulerSwitch(SwitchEntity, RestoreEntity):
         hvac_mode: str,
     ):
         if hvac_mode is None:
+            _LOGGER.info(self.entity_id + ": No HVAC mode")
             return
 
         data = {ATTR_ENTITY_ID: entity, ATTR_HVAC_MODE: hvac_mode}
@@ -549,6 +552,7 @@ class ClimateSchedulerSwitch(SwitchEntity, RestoreEntity):
         if min_temperature is None and max_temperature is None:
             return
 
+        # TODO: Validation could be more robust here
         data = {ATTR_ENTITY_ID: entity, ATTR_HVAC_MODE: hvac_mode}
         if hvac_mode == "heat":
             data[ATTR_TEMPERATURE] = min_temperature
