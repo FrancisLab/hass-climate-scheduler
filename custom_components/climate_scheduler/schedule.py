@@ -33,7 +33,7 @@ SCHEDULE_SCHEMA = vol.Schema(
 )
 
 
-class ClimateShedulerSchedule:
+class ClimateSchedulerSchedule:
     """Representation of a single schedule entry."""
 
     def __init__(self, config: dict) -> None:

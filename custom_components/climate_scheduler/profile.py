@@ -16,7 +16,7 @@ from .const import (
     CONF_PROFILE_ID,
     CONF_PROFILE_SCHEDULE,
 )
-from .schedule import SCHEDULE_SCHEMA, ClimateShedulerSchedule
+from .schedule import SCHEDULE_SCHEMA, ClimateSchedulerSchedule
 from .validation import unique_schedule_times
 
 PROFILES_SCHEMA = vol.Schema(
@@ -52,7 +52,7 @@ class ClimateSchedulerProfile:
         self._default_max_temp = config.get(CONF_PROFILE_DEFAULT_MAX_TEMP)
 
         self._schedules = [
-            ClimateShedulerSchedule(c) for c in config.get(CONF_PROFILE_SCHEDULE)
+            ClimateSchedulerSchedule(c) for c in config.get(CONF_PROFILE_SCHEDULE)
         ]
         self._schedules.sort(key=lambda x: x.time.total_seconds())
 
@@ -85,7 +85,7 @@ class ClimateSchedulerProfile:
         """Return a list of times when the schedule changes."""
         return [s.time for s in self._schedules]
 
-    def _find_schedule(self, time_of_day: timedelta) -> ClimateShedulerSchedule | None:
+    def _find_schedule(self, time_of_day: timedelta) -> ClimateSchedulerSchedule | None:
         if len(self._schedules) == 0:
             return None
 
