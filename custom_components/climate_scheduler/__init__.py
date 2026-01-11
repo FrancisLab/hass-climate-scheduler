@@ -34,12 +34,12 @@ CONFIG_SCHEMA = vol.Schema(
 _LOGGER = logging.getLogger(__name__)
 
 
-async def async_setup(hass: HomeAssistant, global_config: dict):
+async def async_setup(hass: HomeAssistant, global_config: dict) -> bool:
     """Set up the Climate Scheduler component."""
 
     config = global_config.get(DOMAIN)
     if config is None:
-        return
+        return False
 
     climate_scheduler = ClimateScheduler(hass, config)
     hass.data[DATA_CLIMATE_SCHEDULER] = climate_scheduler
@@ -52,7 +52,9 @@ class ClimateScheduler(object):
 
     def __init__(self, hass: HomeAssistant, config: dict) -> None:
         self.hass = hass
-        self._update_interval: timedelta = config.get(CONF_UPDATE_INTERVAL)
+        self._update_interval: timedelta = config.get(
+            CONF_UPDATE_INTERVAL, timedelta(minutes=15)
+        )
 
     @property
     def update_interval(self) -> timedelta:

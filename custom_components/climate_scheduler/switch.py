@@ -11,7 +11,7 @@ from homeassistant.components.input_select import (
     CONF_OPTIONS,
     InputSelect,
 )
-from homeassistant.components.climate.const import (
+from homeassistant.components.climate import (
     ATTR_FAN_MODE,
     ATTR_HVAC_MODE,
     ATTR_SWING_MODE,
@@ -303,7 +303,7 @@ class ClimateSchedulerSwitch(SwitchEntity, RestoreEntity):
         # Setup default profile
         self._default_profile_id: Optional[str] = config.get(CONF_DEFAULT_PROFILE)
         if self._default_profile_id not in self._profiles:
-            logging.warn(
+            logging.warning(
                 "Ignoring invalid default profile id {}".format(
                     self._default_profile_id
                 )
@@ -374,7 +374,7 @@ class ClimateSchedulerSwitch(SwitchEntity, RestoreEntity):
 
         platforms = async_get_platforms(self._hass, INPUT_SELECT_DOMAIN)
         if len(platforms) == 0:
-            logging.warn("No input select platform, not adding selectors")
+            logging.warning("No input select platform, not adding selectors")
             return
         input_select_platform: EntityPlatform = platforms[0]
 
@@ -433,7 +433,7 @@ class ClimateSchedulerSwitch(SwitchEntity, RestoreEntity):
 
     async def _async_update_profile(self, new_profile_id: str) -> None:
         if new_profile_id not in self._profiles:
-            logging.warn("Ignoring invalid profile with id={}".format(new_profile_id))
+            logging.warning("Ignoring invalid profile with id={}".format(new_profile_id))
             return
 
         self._current_profile = self._profiles.get(new_profile_id)
