@@ -1,20 +1,15 @@
 """The Climate Scheduler integration."""
 
 import logging
-from datetime import timedelta
 
 import homeassistant.helpers.config_validation as cv
 import voluptuous as vol
 from homeassistant.core import HomeAssistant
 
-VERSION = "0.0.0"
+from .const import CONF_UPDATE_INTERVAL, DATA_CLIMATE_SCHEDULER
+from .scheduler import ClimateScheduler
 
 DOMAIN = "climate_scheduler"
-CLIMATE_SCHEDULER_PLATFORMS = ["switch"]
-CLIMATE_SCHEDULER_UPDATE_TOPIC = f"{DOMAIN}_update"
-DATA_CLIMATE_SCHEDULER = "data_climate_scheduler"
-
-CONF_UPDATE_INTERVAL = "update_interval"
 
 
 CONFIG_SCHEMA = vol.Schema(
@@ -47,17 +42,3 @@ async def async_setup(hass: HomeAssistant, global_config: dict) -> bool:
     hass.data[DATA_CLIMATE_SCHEDULER] = climate_scheduler
 
     return True
-
-
-class ClimateScheduler:
-    """Climate Scheduler Implementation"""
-
-    def __init__(self, hass: HomeAssistant, config: dict) -> None:
-        self.hass = hass
-        self._update_interval: timedelta = config.get(
-            CONF_UPDATE_INTERVAL, timedelta(minutes=15)
-        )
-
-    @property
-    def update_interval(self) -> timedelta:
-        return self._update_interval

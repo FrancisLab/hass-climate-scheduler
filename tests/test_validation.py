@@ -11,9 +11,9 @@ from custom_components.climate_scheduler.const import (
     CONF_SCHEDULE_MIN_TEMP,
     CONF_SCHEDULE_TIME,
 )
+from custom_components.climate_scheduler.profile import PROFILES_SCHEMA
+from custom_components.climate_scheduler.schedule import SCHEDULE_SCHEMA
 from custom_components.climate_scheduler.validation import (
-    PROFILES_SCHEMA,
-    SCHEDULE_SCHEMA,
     less_than_24h,
     unique_profiles,
     unique_schedule_times,

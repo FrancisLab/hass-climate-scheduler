@@ -2,6 +2,10 @@
 
 from datetime import timedelta
 
+import homeassistant.helpers.config_validation as cv
+import voluptuous as vol
+from homeassistant.components.climate import HVAC_MODES
+
 from .common import ComputedClimateData
 from .const import (
     CONF_PROFILE_DEFAULT_FAN_MODE,
@@ -12,7 +16,26 @@ from .const import (
     CONF_PROFILE_ID,
     CONF_PROFILE_SCHEDULE,
 )
-from .schedule import ClimateShedulerSchedule
+from .schedule import SCHEDULE_SCHEMA, ClimateShedulerSchedule
+from .validation import unique_schedule_times
+
+PROFILES_SCHEMA = vol.Schema(
+    [
+        {
+            vol.Required(CONF_PROFILE_ID): vol.All(cv.string),
+            vol.Optional(CONF_PROFILE_SCHEDULE, default=[]): vol.All(
+                SCHEDULE_SCHEMA, unique_schedule_times
+            ),
+            vol.Optional(CONF_PROFILE_DEFAULT_HVAC_MODE): vol.All(
+                cv.string, vol.In(HVAC_MODES)
+            ),
+            vol.Optional(CONF_PROFILE_DEFAULT_FAN_MODE): cv.string,
+            vol.Optional(CONF_PROFILE_DEFAULT_SWING_MODE): cv.string,
+            vol.Optional(CONF_PROFILE_DEFAULT_MIN_TEMP): vol.Coerce(float),
+            vol.Optional(CONF_PROFILE_DEFAULT_MAX_TEMP): vol.Coerce(float),
+        }
+    ]
+)
 
 
 class ClimateSchedulerProfile:

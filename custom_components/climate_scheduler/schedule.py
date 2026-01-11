@@ -2,6 +2,10 @@
 
 from datetime import timedelta
 
+import homeassistant.helpers.config_validation as cv
+import voluptuous as vol
+from homeassistant.components.climate import HVAC_MODES
+
 from .const import (
     CONF_SCHEDULE_FAN_MODE,
     CONF_SCHEDULE_HVAC,
@@ -9,6 +13,23 @@ from .const import (
     CONF_SCHEDULE_MIN_TEMP,
     CONF_SCHEDULE_SWING_MODE,
     CONF_SCHEDULE_TIME,
+)
+from .validation import less_than_24h
+
+SCHEDULE_SCHEMA = vol.Schema(
+    [
+        {
+            vol.Required(CONF_SCHEDULE_TIME): vol.All(
+                cv.positive_time_period,
+                less_than_24h,
+            ),
+            vol.Optional(CONF_SCHEDULE_HVAC): vol.All(cv.string, vol.In(HVAC_MODES)),
+            vol.Optional(CONF_SCHEDULE_MIN_TEMP): vol.Coerce(float),
+            vol.Optional(CONF_SCHEDULE_MAX_TEMP): vol.Coerce(float),
+            vol.Optional(CONF_SCHEDULE_FAN_MODE): cv.string,
+            vol.Optional(CONF_SCHEDULE_SWING_MODE): cv.string,
+        }
+    ]
 )
 
 

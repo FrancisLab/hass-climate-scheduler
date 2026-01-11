@@ -1,5 +1,5 @@
 """
-Climate Schduler Switch for Home-Assistant.
+Climate Scheduler Switch for Home-Assistant.
 """
 
 import asyncio
@@ -52,10 +52,6 @@ from homeassistant.helpers.restore_state import RestoreEntity
 from homeassistant.util import slugify
 from homeassistant.util.dt import now
 
-from . import (
-    DATA_CLIMATE_SCHEDULER,
-    ClimateScheduler,
-)
 from .common import ComputedClimateData
 from .const import (
     ATTR_PROFILE,
@@ -65,10 +61,12 @@ from .const import (
     CONF_DEFAULT_STATE,
     CONF_PROFILE_ID,
     CONF_PROFILES,
+    DATA_CLIMATE_SCHEDULER,
     ICON,
 )
-from .profile import ClimateSchedulerProfile
-from .validation import PROFILES_SCHEMA, unique_profiles
+from .profile import PROFILES_SCHEMA, ClimateSchedulerProfile
+from .scheduler import ClimateScheduler
+from .validation import unique_profiles
 
 PLATFORM_SCHEMA = vol.Schema(
     {

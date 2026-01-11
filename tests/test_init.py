@@ -4,10 +4,10 @@ from datetime import timedelta
 
 from homeassistant.setup import async_setup_component
 
-from custom_components.climate_scheduler import (
+from custom_components.climate_scheduler import DOMAIN
+from custom_components.climate_scheduler.const import (
     CONF_UPDATE_INTERVAL,
     DATA_CLIMATE_SCHEDULER,
-    DOMAIN,
 )
 
 

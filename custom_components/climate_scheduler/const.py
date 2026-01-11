@@ -5,6 +5,9 @@ CONF_DEFAULT_STATE = "default_state"
 CONF_DEFAULT_PROFILE = "default_profile"
 CONF_PROFILES = "profiles"
 
+DATA_CLIMATE_SCHEDULER = "data_climate_scheduler"
+CONF_UPDATE_INTERVAL = "update_interval"
+
 CONF_PROFILE_ID = "id"
 CONF_PROFILE_SCHEDULE = "schedule"
 CONF_PROFILE_DEFAULT_HVAC_MODE = "default_hvac_mode"
