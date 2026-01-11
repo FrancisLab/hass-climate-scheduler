@@ -378,12 +378,12 @@ class ClimateSchedulerSwitch(SwitchEntity, RestoreEntity):
 
         platforms = async_get_platforms(self._hass, INPUT_SELECT_DOMAIN)
         if len(platforms) == 0:
-            logging.warning("No input select platform, not adding selectors")
+            logging.error("No input select platform, not adding selectors")
             return
         input_select_platform: EntityPlatform = platforms[0]
 
         selector_config = {
-            CONF_ID: "input_select." + self.entity_id_suffix + "_profile_selector",
+            CONF_ID: self.entity_id_suffix + "_profile_selector",
             CONF_NAME: self.name + " Climate Profile Selector",
             CONF_OPTIONS: self.profile_options,
             CONF_ICON: "mdi:mdiFormSelect ",
