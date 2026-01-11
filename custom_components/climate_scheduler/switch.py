@@ -45,7 +45,7 @@ from homeassistant.const import (
 from homeassistant.core import HomeAssistant, State
 from homeassistant.helpers.entity import Entity
 from homeassistant.helpers.event import (
-    async_track_state_change,
+    async_track_state_change_event,
     async_track_time_change,
     async_track_time_interval,
 )
@@ -286,6 +286,8 @@ class ClimateSchedulerSwitch(SwitchEntity, RestoreEntity):
 
         # Simple configs
         self._name: str = config.get(CONF_NAME)
+
+        logging.debug("Initializing Climate Scheduler switch {}".format(self.entity_id))
         self._climate_entities: List[str] = config.get(CONF_CLIMATE_ENTITIES)
 
         # Setup state
@@ -303,7 +305,7 @@ class ClimateSchedulerSwitch(SwitchEntity, RestoreEntity):
         # Setup default profile
         self._default_profile_id: Optional[str] = config.get(CONF_DEFAULT_PROFILE)
         if self._default_profile_id not in self._profiles:
-            logging.warning(
+            logging.debug(
                 "Ignoring invalid default profile id {}".format(
                     self._default_profile_id
                 )
@@ -323,6 +325,8 @@ class ClimateSchedulerSwitch(SwitchEntity, RestoreEntity):
         )
         self._schedule_tracker_remove_callbacks: List[Callable[[], None]] = []
         self._update_schedule_trackers()
+
+        logging.info("Initialized Climate Scheduler switch {}".format(self.entity_id))
 
     @property
     def entity_id(self) -> str:
@@ -390,7 +394,7 @@ class ClimateSchedulerSwitch(SwitchEntity, RestoreEntity):
         await input_select_platform.async_add_entities([self._profile_selector])
 
         # Subscribe for profile changes
-        self._profile_tracker_remover = async_track_state_change(
+        self._profile_tracker_remover = async_track_state_change_event(
             self._hass,
             [self._profile_selector.entity_id],
             self._async_on_profile_selector_change,
@@ -426,9 +430,12 @@ class ClimateSchedulerSwitch(SwitchEntity, RestoreEntity):
         self.async_schedule_update_ha_state()
 
     async def _async_on_profile_selector_change(
-        self, entity_id: str, old_state: State, new_state: State
+        self, event
     ) -> None:
         """Invoked when a different profile has been chosen via input select"""
+        new_state = event.data.get("new_state")
+        if new_state is None:
+            return
         await self._async_update_profile(new_state.state)
 
     async def _async_update_profile(self, new_profile_id: str) -> None:

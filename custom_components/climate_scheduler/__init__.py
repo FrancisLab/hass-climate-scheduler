@@ -37,8 +37,11 @@ _LOGGER = logging.getLogger(__name__)
 async def async_setup(hass: HomeAssistant, global_config: dict) -> bool:
     """Set up the Climate Scheduler component."""
 
+    _LOGGER.debug("Setting up with config: %s", global_config)
+
     config = global_config.get(DOMAIN)
     if config is None:
+        _LOGGER.error("No config found for Climate Scheduler")
         return False
 
     climate_scheduler = ClimateScheduler(hass, config)
