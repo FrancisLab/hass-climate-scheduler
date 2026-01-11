@@ -2,3 +2,5 @@
 homeassistant==2026.1.0
 # Testing
 pytest-homeassistant-custom-component==0.13.305
+ruff>=0.9.1
+pre-commit>=4.0.0

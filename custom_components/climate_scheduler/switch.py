@@ -2,15 +2,14 @@
 Climate Schduler Switch for Home-Assistant.
 """
 
-
 import asyncio
+import logging
 from collections import namedtuple
+from collections.abc import Callable, Iterable
 from datetime import timedelta
-from homeassistant.components.input_select import (
-    CONF_INITIAL,
-    CONF_OPTIONS,
-    InputSelect,
-)
+
+import homeassistant.helpers.config_validation as cv
+import voluptuous as vol
 from homeassistant.components.climate import (
     ATTR_FAN_MODE,
     ATTR_HVAC_MODE,
@@ -23,13 +22,14 @@ from homeassistant.components.climate import (
     SERVICE_SET_SWING_MODE,
     SERVICE_SET_TEMPERATURE,
 )
-import logging
-import voluptuous as vol
-from typing import Iterable, List, Callable, Dict, Optional
-
-import homeassistant.helpers.config_validation as cv
-from homeassistant.components.switch import SwitchEntity
 from homeassistant.components.climate import DOMAIN as CLIMATE_DOMAIN
+from homeassistant.components.input_select import (
+    CONF_INITIAL,
+    CONF_OPTIONS,
+    InputSelect,
+)
+from homeassistant.components.input_select import DOMAIN as INPUT_SELECT_DOMAIN
+from homeassistant.components.switch import SwitchEntity
 from homeassistant.const import (
     ATTR_ENTITY_ID,
     ATTR_OPTION,
@@ -42,8 +42,9 @@ from homeassistant.const import (
     STATE_OFF,
     STATE_ON,
 )
-from homeassistant.core import HomeAssistant, State
+from homeassistant.core import HomeAssistant
 from homeassistant.helpers.entity import Entity
+from homeassistant.helpers.entity_platform import EntityPlatform, async_get_platforms
 from homeassistant.helpers.event import (
     async_track_state_change_event,
     async_track_time_change,
@@ -52,14 +53,11 @@ from homeassistant.helpers.event import (
 from homeassistant.helpers.restore_state import RestoreEntity
 from homeassistant.util import slugify
 from homeassistant.util.dt import now
-from homeassistant.helpers.entity_platform import EntityPlatform, async_get_platforms
 
 from . import (
-    ClimateScheduler,
     DATA_CLIMATE_SCHEDULER,
+    ClimateScheduler,
 )
-
-from homeassistant.components.input_select import DOMAIN as INPUT_SELECT_DOMAIN
 
 ICON = "mdi:calendar-clock"
 
@@ -164,34 +162,34 @@ ComputedClimateData = namedtuple(
 class ClimateShedulerSchedule:
     def __init__(self, config: dict) -> None:
         self._time: timedelta = config.get(CONF_SCHEDULE_TIME)
-        self._hvac_mode: Optional[str] = config.get(CONF_SCHEDULE_HVAC)
-        self._fan_mode: Optional[str] = config.get(CONF_SCHEDULE_FAN_MODE)
-        self._swing_mode: Optional[str] = config.get(CONF_SCHEDULE_SWING_MODE)
-        self._min_temp: Optional[int] = config.get(CONF_SCHEDULE_MIN_TEMP)
-        self._max_temp: Optional[int] = config.get(CONF_SCHEDULE_MAX_TEMP)
+        self._hvac_mode: str | None = config.get(CONF_SCHEDULE_HVAC)
+        self._fan_mode: str | None = config.get(CONF_SCHEDULE_FAN_MODE)
+        self._swing_mode: str | None = config.get(CONF_SCHEDULE_SWING_MODE)
+        self._min_temp: int | None = config.get(CONF_SCHEDULE_MIN_TEMP)
+        self._max_temp: int | None = config.get(CONF_SCHEDULE_MAX_TEMP)
 
     @property
     def time(self) -> timedelta:
         return self._time
 
     @property
-    def hvac_mode(self) -> Optional[str]:
+    def hvac_mode(self) -> str | None:
         return self._hvac_mode
 
     @property
-    def fan_mode(self) -> Optional[str]:
+    def fan_mode(self) -> str | None:
         return self._fan_mode
 
     @property
-    def swing_mode(self) -> Optional[str]:
+    def swing_mode(self) -> str | None:
         return self._swing_mode
 
     @property
-    def min_temp(self) -> Optional[float]:
+    def min_temp(self) -> float | None:
         return self._min_temp
 
     @property
-    def max_temp(self) -> Optional[float]:
+    def max_temp(self) -> float | None:
         return self._max_temp
 
 
@@ -233,12 +231,10 @@ class ClimateSchedulerProfile:
             schedule.max_temp if schedule.max_temp else self._default_max_temp,
         )
 
-    def get_trigger_times(self) -> List[timedelta]:
+    def get_trigger_times(self) -> list[timedelta]:
         return [s.time for s in self._schedules]
 
-    def _find_schedule(
-        self, time_of_day: timedelta
-    ) -> Optional[ClimateShedulerSchedule]:
+    def _find_schedule(self, time_of_day: timedelta) -> ClimateShedulerSchedule | None:
         if len(self._schedules) == 0:
             return None
 
@@ -287,33 +283,31 @@ class ClimateSchedulerSwitch(SwitchEntity, RestoreEntity):
         # Simple configs
         self._name: str = config.get(CONF_NAME)
 
-        _LOGGER.info("Initializing Climate Scheduler switch {}".format(self.entity_id))
-        self._climate_entities: List[str] = config.get(CONF_CLIMATE_ENTITIES)
+        _LOGGER.info(f"Initializing Climate Scheduler switch {self.entity_id}")
+        self._climate_entities: list[str] = config.get(CONF_CLIMATE_ENTITIES)
 
         # Setup state
-        self._state: Optional[str] = None
-        self._default_state: Optional[str] = (
+        self._state: str | None = None
+        self._default_state: str | None = (
             STATE_ON if config.get(CONF_DEFAULT_STATE) else STATE_OFF
         )
 
         # Setup profiles
-        self._profiles: Dict[str, ClimateSchedulerProfile] = {
+        self._profiles: dict[str, ClimateSchedulerProfile] = {
             profile_conf[CONF_PROFILE_ID]: ClimateSchedulerProfile(profile_conf)
             for profile_conf in config.get(CONF_PROFILES)
         }
 
         # Setup default profile
-        self._default_profile_id: Optional[str] = config.get(CONF_DEFAULT_PROFILE)
+        self._default_profile_id: str | None = config.get(CONF_DEFAULT_PROFILE)
         if self._default_profile_id not in self._profiles:
             _LOGGER.info(
-                "Ignoring invalid default profile id {}".format(
-                    self._default_profile_id
-                )
+                f"Ignoring invalid default profile id {self._default_profile_id}"
             )
             self._default_profile_id = None
 
         # Setup current profile
-        self._current_profile: Optional[ClimateSchedulerProfile] = None
+        self._current_profile: ClimateSchedulerProfile | None = None
         self._current_profile = self._profiles.get(
             # Using current_profile_id property will resolve the default profile for us
             self.current_profile_id
@@ -323,10 +317,10 @@ class ClimateSchedulerSwitch(SwitchEntity, RestoreEntity):
         self._interval_tracker_remove_callbacks = async_track_time_interval(
             hass, self.async_update_climate, self._update_interval
         )
-        self._schedule_tracker_remove_callbacks: List[Callable[[], None]] = []
+        self._schedule_tracker_remove_callbacks: list[Callable[[], None]] = []
         self._update_schedule_trackers()
 
-        logging.info("Initialized Climate Scheduler switch {}".format(self.entity_id))
+        logging.info(f"Initialized Climate Scheduler switch {self.entity_id}")
 
     @property
     def entity_id(self) -> str:
@@ -349,17 +343,17 @@ class ClimateSchedulerSwitch(SwitchEntity, RestoreEntity):
         return ICON
 
     @property
-    def profile_options(self) -> List[str]:
+    def profile_options(self) -> list[str]:
         return list(self._profiles.keys())
 
     @property
-    def state(self) -> Optional[str]:
+    def state(self) -> str | None:
         if self._state is None:
             return self._default_state or STATE_OFF
         return self._state
 
     @property
-    def current_profile_id(self) -> Optional[str]:
+    def current_profile_id(self) -> str | None:
         if self._current_profile is None:
             return self._default_profile_id or list(self._profiles.keys())[0]
         return self._current_profile.profile_id
@@ -429,20 +423,18 @@ class ClimateSchedulerSwitch(SwitchEntity, RestoreEntity):
 
         self.async_schedule_update_ha_state()
 
-    async def _async_on_profile_selector_change(
-        self, event
-    ) -> None:
+    async def _async_on_profile_selector_change(self, event) -> None:
         """Invoked when a different profile has been chosen via input select"""
         new_state = event.data.get("new_state")
         if new_state is None:
             return
 
-        _LOGGER.info("Profile selector changed to {}".format(new_state.state))
+        _LOGGER.info(f"Profile selector changed to {new_state.state}")
         await self._async_update_profile(new_state.state)
 
     async def _async_update_profile(self, new_profile_id: str) -> None:
         if new_profile_id not in self._profiles:
-            logging.warning("Ignoring invalid profile with id={}".format(new_profile_id))
+            logging.warning(f"Ignoring invalid profile with id={new_profile_id}")
             return
 
         self._current_profile = self._profiles.get(new_profile_id)
@@ -500,7 +492,8 @@ class ClimateSchedulerSwitch(SwitchEntity, RestoreEntity):
             return
 
         # TODO: Track temperature of entities. Only heat/cool if under/above threshold
-        # TODO: Allow specifying a desired idle mode (e.g. fan-only for allergies, forest fire, etc.)
+        # TODO: Allow specifying a desired idle mode (e.g. fan-only for allergies,
+        # forest fire, etc.)
 
         dt = now()
         time_of_day = timedelta(hours=dt.hour, minutes=dt.minute, seconds=dt.second)
@@ -513,7 +506,7 @@ class ClimateSchedulerSwitch(SwitchEntity, RestoreEntity):
         await asyncio.gather(*update_tasks)
 
     async def _async_update_climate_entity(
-        self, entity: str, data: Optional[ComputedClimateData]
+        self, entity: str, data: ComputedClimateData | None
     ) -> None:
         if data is None:
             return
@@ -543,8 +536,8 @@ class ClimateSchedulerSwitch(SwitchEntity, RestoreEntity):
         self,
         entity: str,
         hvac_mode: str,
-        min_temperature: Optional[float],
-        max_temperature: Optional[float],
+        min_temperature: float | None,
+        max_temperature: float | None,
     ):
         if hvac_mode is None:
             return
