@@ -4,7 +4,6 @@ Climate Schduler Switch for Home-Assistant.
 
 import asyncio
 import logging
-from collections import namedtuple
 from collections.abc import Callable, Iterable
 from datetime import timedelta
 
@@ -16,7 +15,6 @@ from homeassistant.components.climate import (
     ATTR_SWING_MODE,
     ATTR_TARGET_TEMP_HIGH,
     ATTR_TARGET_TEMP_LOW,
-    HVAC_MODES,
     SERVICE_SET_FAN_MODE,
     SERVICE_SET_HVAC_MODE,
     SERVICE_SET_SWING_MODE,
@@ -58,83 +56,19 @@ from . import (
     DATA_CLIMATE_SCHEDULER,
     ClimateScheduler,
 )
-
-ICON = "mdi:calendar-clock"
-
-CONF_CLIMATE_ENTITIES = "climate_entities"
-CONF_DEFAULT_STATE = "default_state"
-CONF_DEFAULT_PROFILE = "default_profile"
-CONF_PROFILES = "profiles"
-
-CONF_PROFILE_ID = "id"
-CONF_PROFILE_SCHEDULE = "schedule"
-CONF_PROFILE_DEFAULT_HVAC_MODE = "default_hvac_mode"
-CONF_PROFILE_DEFAULT_FAN_MODE = "default_fan_mode"
-CONF_PROFILE_DEFAULT_SWING_MODE = "default_swing_mode"
-CONF_PROFILE_DEFAULT_MIN_TEMP = "default_min_temp"
-CONF_PROFILE_DEFAULT_MAX_TEMP = "default_max_temp"
-
-CONF_SCHEDULE_TIME = "time"
-CONF_SCHEDULE_HVAC = "hvac_mode"
-CONF_SCHEDULE_MIN_TEMP = "min_temp"
-CONF_SCHEDULE_MAX_TEMP = "max_temp"
-CONF_SCHEDULE_FAN_MODE = "fan_mode"
-CONF_SCHEDULE_SWING_MODE = "swing_mode"
-
-
-def less_than_24h(delta: timedelta) -> timedelta:
-    if delta.total_seconds() >= 24 * 60 * 60:
-        raise vol.Invalid("Schedule time must be less than 24h")
-    return delta
-
-
-def unique_profiles(profiles: dict) -> dict:
-    names = [p.get(CONF_PROFILE_ID) for p in profiles]
-    if len(names) != len(set(names)):
-        raise vol.Invalid("Profile names must be unique within scheduler")
-    return profiles
-
-
-def unique_schedule_times(schedules: dict) -> dict:
-    times = [s.get(CONF_SCHEDULE_TIME).total_seconds() for s in schedules]
-    if (len(times)) != len(set(times)):
-        raise vol.Invalid("Schedule times must be unique within a profile")
-    return schedules
-
-
-SCHEDULE_SCHEMA = vol.Schema(
-    [
-        {
-            vol.Required(CONF_SCHEDULE_TIME): vol.All(
-                cv.positive_time_period,
-                less_than_24h,
-            ),
-            vol.Optional(CONF_SCHEDULE_HVAC): vol.All(cv.string, vol.In(HVAC_MODES)),
-            vol.Optional(CONF_SCHEDULE_MIN_TEMP): vol.Coerce(float),
-            vol.Optional(CONF_SCHEDULE_MAX_TEMP): vol.Coerce(float),
-            vol.Optional(CONF_SCHEDULE_FAN_MODE): cv.string,
-            vol.Optional(CONF_SCHEDULE_SWING_MODE): cv.string,
-        }
-    ]
+from .common import ComputedClimateData
+from .const import (
+    ATTR_PROFILE,
+    ATTR_PROFILE_OPTIONS,
+    CONF_CLIMATE_ENTITIES,
+    CONF_DEFAULT_PROFILE,
+    CONF_DEFAULT_STATE,
+    CONF_PROFILE_ID,
+    CONF_PROFILES,
+    ICON,
 )
-
-PROFILES_SCHEMA = vol.Schema(
-    [
-        {
-            vol.Required(CONF_PROFILE_ID): vol.All(cv.string),
-            vol.Optional(CONF_PROFILE_SCHEDULE, default=[]): vol.All(
-                SCHEDULE_SCHEMA, unique_schedule_times
-            ),
-            vol.Optional(CONF_PROFILE_DEFAULT_HVAC_MODE): vol.All(
-                cv.string, vol.In(HVAC_MODES)
-            ),
-            vol.Optional(CONF_PROFILE_DEFAULT_FAN_MODE): cv.string,
-            vol.Optional(CONF_PROFILE_DEFAULT_SWING_MODE): cv.string,
-            vol.Optional(CONF_PROFILE_DEFAULT_MIN_TEMP): vol.Coerce(float),
-            vol.Optional(CONF_PROFILE_DEFAULT_MAX_TEMP): vol.Coerce(float),
-        }
-    ]
-)
+from .profile import ClimateSchedulerProfile
+from .validation import PROFILES_SCHEMA, unique_profiles
 
 PLATFORM_SCHEMA = vol.Schema(
     {
@@ -151,122 +85,6 @@ PLATFORM_SCHEMA = vol.Schema(
 )
 
 _LOGGER = logging.getLogger(__name__)
-
-
-ComputedClimateData = namedtuple(
-    "ComputedClimateData",
-    ["hvac_mode", "fan_mode", "swing_mode", "min_temp", "max_temp"],
-)
-
-
-class ClimateShedulerSchedule:
-    def __init__(self, config: dict) -> None:
-        self._time: timedelta = config.get(CONF_SCHEDULE_TIME)
-        self._hvac_mode: str | None = config.get(CONF_SCHEDULE_HVAC)
-        self._fan_mode: str | None = config.get(CONF_SCHEDULE_FAN_MODE)
-        self._swing_mode: str | None = config.get(CONF_SCHEDULE_SWING_MODE)
-        self._min_temp: int | None = config.get(CONF_SCHEDULE_MIN_TEMP)
-        self._max_temp: int | None = config.get(CONF_SCHEDULE_MAX_TEMP)
-
-    @property
-    def time(self) -> timedelta:
-        return self._time
-
-    @property
-    def hvac_mode(self) -> str | None:
-        return self._hvac_mode
-
-    @property
-    def fan_mode(self) -> str | None:
-        return self._fan_mode
-
-    @property
-    def swing_mode(self) -> str | None:
-        return self._swing_mode
-
-    @property
-    def min_temp(self) -> float | None:
-        return self._min_temp
-
-    @property
-    def max_temp(self) -> float | None:
-        return self._max_temp
-
-
-class ClimateSchedulerProfile:
-    def __init__(self, config: dict) -> None:
-        self._id: str = config.get(CONF_PROFILE_ID)
-
-        self._default_hvac_mode = config.get(CONF_PROFILE_DEFAULT_HVAC_MODE)
-        self._default_fan_mode = config.get(CONF_PROFILE_DEFAULT_FAN_MODE)
-        self._default_swing_mode = config.get(CONF_PROFILE_DEFAULT_SWING_MODE)
-        self._default_min_temp = config.get(CONF_PROFILE_DEFAULT_MIN_TEMP)
-        self._default_max_temp = config.get(CONF_PROFILE_DEFAULT_MAX_TEMP)
-
-        self._schedules = [
-            ClimateShedulerSchedule(c) for c in config.get(CONF_PROFILE_SCHEDULE)
-        ]
-        self._schedules.sort(key=lambda x: x.time.total_seconds())
-
-    @property
-    def profile_id(self) -> str:
-        return self._id
-
-    def compute_climate(self, time_of_day: timedelta) -> ComputedClimateData:
-        schedule = self._find_schedule(time_of_day)
-        if schedule is None:
-            return ComputedClimateData(
-                self._default_hvac_mode,
-                self._default_fan_mode,
-                self._default_swing_mode,
-                self._default_min_temp,
-                self._default_max_temp,
-            )
-
-        return ComputedClimateData(
-            schedule.hvac_mode if schedule.hvac_mode else self._default_hvac_mode,
-            schedule.fan_mode if schedule.fan_mode else self._default_fan_mode,
-            schedule.swing_mode if schedule.swing_mode else self._default_swing_mode,
-            schedule.min_temp if schedule.min_temp else self._default_min_temp,
-            schedule.max_temp if schedule.max_temp else self._default_max_temp,
-        )
-
-    def get_trigger_times(self) -> list[timedelta]:
-        return [s.time for s in self._schedules]
-
-    def _find_schedule(self, time_of_day: timedelta) -> ClimateShedulerSchedule | None:
-        if len(self._schedules) == 0:
-            return None
-
-        if len(self._schedules) == 1:
-            return self._schedules[0]
-
-        # If the current time is earlier than the first schedule, wrap around and
-        # return the last schedule of the day
-        if time_of_day < self._schedules[0].time:
-            return self._schedules[-1]
-
-        for index, schedule in enumerate(self._schedules):
-            # Search for a schedule starting earlier than the current time of day
-            # which appears right before a schedule which starts later than the
-            # current time of the day or which is the last schedule of the day.
-
-            next_schedule = None
-            if index < len(self._schedules) - 1:
-                next_schedule = self._schedules[index + 1]
-
-            if time_of_day >= schedule.time and (
-                next_schedule is None or time_of_day < next_schedule.time
-            ):
-                return schedule
-
-        return None
-
-
-ATTR_IS_ON = "is_on"
-ATTR_PROFILE = "current_profile"
-ATTR_PROFILE_OPTIONS = "profile_options"
-# TODO: Add an "explanation string" attribute and property
 
 
 class ClimateSchedulerSwitch(SwitchEntity, RestoreEntity):

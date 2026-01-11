@@ -4,12 +4,14 @@ import pytest
 import voluptuous as vol
 from homeassistant.components.climate import HVACMode
 
-from custom_components.climate_scheduler.switch import (
+from custom_components.climate_scheduler.const import (
     CONF_PROFILE_ID,
     CONF_PROFILE_SCHEDULE,
     CONF_SCHEDULE_HVAC,
     CONF_SCHEDULE_MIN_TEMP,
     CONF_SCHEDULE_TIME,
+)
+from custom_components.climate_scheduler.validation import (
     PROFILES_SCHEMA,
     SCHEDULE_SCHEMA,
     less_than_24h,

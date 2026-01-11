@@ -28,7 +28,7 @@ from pytest_homeassistant_custom_component.common import (
 )
 
 from custom_components.climate_scheduler import DOMAIN
-from custom_components.climate_scheduler.switch import (
+from custom_components.climate_scheduler.const import (
     CONF_CLIMATE_ENTITIES,
     CONF_PROFILE_DEFAULT_HVAC_MODE,
     CONF_PROFILE_ID,
