@@ -107,16 +107,12 @@ async def test_setup_platform(hass: HomeAssistant, mock_climate_scheduler_config
     assert state.attributes.get("profile_options") == ["Default", "Weekend"]
 
     # Check input_select creation
-    input_select = hass.states.get(
-        "input_select.climate_scheduler_test_scheduler_profile_selector"
-    )
+    input_select = hass.states.get("input_select.climate_scheduler_test_scheduler_profile_selector")
     assert input_select is not None
     assert input_select.state == "Default"
 
 
-async def test_setup_with_custom_default_state(
-    hass: HomeAssistant, mock_climate_scheduler_config
-):
+async def test_setup_with_custom_default_state(hass: HomeAssistant, mock_climate_scheduler_config):
     mock_climate_scheduler_config[CONF_DEFAULT_STATE] = True
     await async_setup_scheduler(hass, mock_climate_scheduler_config)
 
@@ -124,9 +120,7 @@ async def test_setup_with_custom_default_state(
     assert state.state == STATE_ON
 
 
-async def test_ignore_invalid_default_profile(
-    hass: HomeAssistant, mock_climate_scheduler_config
-):
+async def test_ignore_invalid_default_profile(hass: HomeAssistant, mock_climate_scheduler_config):
     mock_climate_scheduler_config[CONF_DEFAULT_PROFILE] = "InvalidProfile"
     # Should not fail, just fallback
     await async_setup_scheduler(hass, mock_climate_scheduler_config)
@@ -162,9 +156,7 @@ async def test_restore_state(hass: HomeAssistant, mock_climate_scheduler_config)
     assert state.attributes.get(ATTR_PROFILE) == "Weekend"
 
 
-async def test_turn_on_updates_climate(
-    hass: HomeAssistant, mock_climate_scheduler_config
-):
+async def test_turn_on_updates_climate(hass: HomeAssistant, mock_climate_scheduler_config):
     await async_setup_scheduler(hass, mock_climate_scheduler_config)
     entity_id = "switch.climate_scheduler_test_scheduler"
 
@@ -206,9 +198,7 @@ async def test_switch_profile(hass: HomeAssistant, mock_climate_scheduler_config
             "input_select",
             "select_option",
             {
-                ATTR_ENTITY_ID: (
-                    "input_select.climate_scheduler_test_scheduler_profile_selector"
-                ),
+                ATTR_ENTITY_ID: ("input_select.climate_scheduler_test_scheduler_profile_selector"),
                 "option": "Weekend",
             },
             blocking=True,
@@ -239,9 +229,7 @@ async def test_time_change_trigger(hass: HomeAssistant, mock_climate_scheduler_c
         "input_select",
         "select_option",
         {
-            ATTR_ENTITY_ID: (
-                "input_select.climate_scheduler_test_scheduler_profile_selector"
-            ),
+            ATTR_ENTITY_ID: ("input_select.climate_scheduler_test_scheduler_profile_selector"),
             "option": "Weekend",
         },
         blocking=True,
@@ -261,9 +249,7 @@ async def test_time_change_trigger(hass: HomeAssistant, mock_climate_scheduler_c
 
     # We need to mock 'now()' inside the component too, because it calls `now()`
     # to get current time.
-    with patch(
-        "custom_components.climate_scheduler.switch.now", return_value=target_time
-    ):
+    with patch("custom_components.climate_scheduler.switch.now", return_value=target_time):
         async_fire_time_changed(hass, target_time)
         await hass.async_block_till_done()
 
@@ -349,9 +335,7 @@ async def test_climate_attributes_omitted_if_none(hass: HomeAssistant):
     assert len(mock_set_fan) == 0
 
 
-async def test_turn_off_stops_updates(
-    hass: HomeAssistant, mock_climate_scheduler_config
-):
+async def test_turn_off_stops_updates(hass: HomeAssistant, mock_climate_scheduler_config):
     await async_setup_scheduler(hass, mock_climate_scheduler_config)
     entity_id = "switch.climate_scheduler_test_scheduler"
 
@@ -373,11 +357,132 @@ async def test_turn_off_stops_updates(
     # Pass time
     mock_set_hvac.clear()
     target_time = dt_util.now() + timedelta(minutes=30)
-    with patch(
-        "custom_components.climate_scheduler.switch.now", return_value=target_time
-    ):
+    with patch("custom_components.climate_scheduler.switch.now", return_value=target_time):
         async_fire_time_changed(hass, target_time)
         await hass.async_block_till_done()
 
     # Should be NO extra calls
+    assert len(mock_set_hvac) == 0
+
+
+async def test_climate_attributes_set_for_heat_and_cool_modes(hass: HomeAssistant):
+    # Test setting temp for pure HEAT and COOL modes with defaults
+    config = {
+        CONF_PLATFORM: "climate_scheduler",
+        CONF_NAME: "Temp Scheduler",
+        CONF_CLIMATE_ENTITIES: ["climate.temp_ac"],
+        CONF_PROFILES: [
+            {
+                CONF_PROFILE_ID: "HeatProfile",
+                CONF_PROFILE_DEFAULT_HVAC_MODE: HVACMode.HEAT,
+                CONF_PROFILE_DEFAULT_MIN_TEMP: 19,
+            },
+            {
+                CONF_PROFILE_ID: "CoolProfile",
+                CONF_PROFILE_DEFAULT_HVAC_MODE: HVACMode.COOL,
+                CONF_PROFILE_DEFAULT_MAX_TEMP: 24,
+            },
+        ],
+        CONF_DEFAULT_PROFILE: "HeatProfile",
+    }
+
+    mock_set_hvac = async_mock_service(hass, "climate", SERVICE_SET_HVAC_MODE)
+    mock_set_temp = async_mock_service(hass, "climate", SERVICE_SET_TEMPERATURE)
+
+    await async_setup_scheduler(hass, config)
+    entity_id = "switch.climate_scheduler_temp_scheduler"
+
+    # Turn On - Should trigger HeatProfile
+    await hass.services.async_call(
+        SWITCH_DOMAIN, SERVICE_TURN_ON, {ATTR_ENTITY_ID: entity_id}, blocking=True
+    )
+    await hass.async_block_till_done()
+
+    # Verify Heat
+    assert mock_set_hvac[-1].data[ATTR_HVAC_MODE] == HVACMode.HEAT
+    assert mock_set_temp[-1].data[ATTR_TEMPERATURE] == 19
+
+    # Switch to CoolProfile
+    await hass.services.async_call(
+        "input_select",
+        "select_option",
+        {
+            ATTR_ENTITY_ID: "input_select.climate_scheduler_temp_scheduler_profile_selector",
+            "option": "CoolProfile",
+        },
+        blocking=True,
+    )
+    await hass.async_block_till_done()
+
+    # Verify Cool
+    assert mock_set_hvac[-1].data[ATTR_HVAC_MODE] == HVACMode.COOL
+    assert mock_set_temp[-1].data[ATTR_TEMPERATURE] == 24
+
+
+async def test_setup_fails_gracefully_without_scheduler(hass: HomeAssistant):
+    # If DATA_CLIMATE_SCHEDULER is missing, setup should fail returning False
+    # To simulate this, we try to setup the platform directly without setting up the
+    # domain logic that puts the scheduler in hass.data
+    from custom_components.climate_scheduler.switch import async_setup_platform
+
+    assert await async_setup_platform(hass, {}, None) is False
+
+
+async def test_profile_selector_creation_fails_gracefully(
+    hass: HomeAssistant, mock_climate_scheduler_config
+):
+    # Mock async_get_platforms to return empty list to simulate no input_select platform
+    with patch(
+        "custom_components.climate_scheduler.switch.async_get_platforms",
+        return_value=[],
+    ):
+        await async_setup_scheduler(hass, mock_climate_scheduler_config)
+
+        # Check that the switch still set up
+        state = hass.states.get("switch.climate_scheduler_test_scheduler")
+        assert state is not None
+
+        # Check that the selector does NOT exist (or at least we didn't crash)
+        # The selector entity ID is usually created by the input_select platform
+        # tracking it. Since we mocked it out, it won't be there.
+        input_select = hass.states.get(
+            "input_select.climate_scheduler_test_scheduler_profile_selector"
+        )
+        assert input_select is None
+
+
+async def test_update_climate_entity_guards(hass: HomeAssistant, mock_climate_scheduler_config):
+    await async_setup_scheduler(hass, mock_climate_scheduler_config)
+
+    # We need to access the switch instance directly to test the private method
+    # Since we don't have easy access to the instance from the state machine,
+    # we can rely on the fact that if we call the method effectively, it returns.
+
+    # However, testing "return None" is tricky without mocking something else
+    # that would be called if it proceeding.
+
+    # Let's try to grab the entity instance from the platform if possible,
+    # but hass.data[SWITCH_DOMAIN] might store it?
+    # Easier way: The auditing tool showed lines 327 'if data is None: return'
+    # We can try to craft a scenario where compute_climate returns None?
+    # Profile.compute_climate always returns a ComputedClimateData object or falls back to defaults.
+
+    # Let's try to mock the profile's compute_climate to return None
+    mock_set_hvac = async_mock_service(hass, "climate", SERVICE_SET_HVAC_MODE)
+
+    with patch(
+        "custom_components.climate_scheduler.profile.ClimateSchedulerProfile.compute_climate",
+        return_value=None,
+    ):
+        # Force an update
+        # We need to get the component instance to call async_update_climate directly or trigger it
+        # Triggering via time change or turn_on
+        await hass.services.async_call(
+            SWITCH_DOMAIN,
+            SERVICE_TURN_ON,
+            {ATTR_ENTITY_ID: "switch.climate_scheduler_test_scheduler"},
+            blocking=True,
+        )
+        await hass.async_block_till_done()
+
     assert len(mock_set_hvac) == 0

@@ -26,9 +26,7 @@ PROFILES_SCHEMA = vol.Schema(
             vol.Optional(CONF_PROFILE_SCHEDULE, default=[]): vol.All(
                 SCHEDULE_SCHEMA, unique_schedule_times
             ),
-            vol.Optional(CONF_PROFILE_DEFAULT_HVAC_MODE): vol.All(
-                cv.string, vol.In(HVAC_MODES)
-            ),
+            vol.Optional(CONF_PROFILE_DEFAULT_HVAC_MODE): vol.All(cv.string, vol.In(HVAC_MODES)),
             vol.Optional(CONF_PROFILE_DEFAULT_FAN_MODE): cv.string,
             vol.Optional(CONF_PROFILE_DEFAULT_SWING_MODE): cv.string,
             vol.Optional(CONF_PROFILE_DEFAULT_MIN_TEMP): vol.Coerce(float),
@@ -51,9 +49,7 @@ class ClimateSchedulerProfile:
         self._default_min_temp = config.get(CONF_PROFILE_DEFAULT_MIN_TEMP)
         self._default_max_temp = config.get(CONF_PROFILE_DEFAULT_MAX_TEMP)
 
-        self._schedules = [
-            ClimateSchedulerSchedule(c) for c in config.get(CONF_PROFILE_SCHEDULE)
-        ]
+        self._schedules = [ClimateSchedulerSchedule(c) for c in config.get(CONF_PROFILE_SCHEDULE)]
         self._schedules.sort(key=lambda x: x.time.total_seconds())
 
     @property
@@ -110,5 +106,3 @@ class ClimateSchedulerProfile:
                 next_schedule is None or time_of_day < next_schedule.time
             ):
                 return schedule
-
-        return None
