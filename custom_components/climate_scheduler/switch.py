@@ -187,6 +187,8 @@ class ClimateSchedulerSwitch(SwitchEntity, RestoreEntity):
         input_select_platform: EntityPlatform = platforms[0]
 
         selector_config = {
+            # TODO: This results in a redundant input_select in the entity name, but fixing would require
+            # building a migration flow to maintain backwards compatibility. Leaving as is for now.
             CONF_ID: "input_select." + self.entity_id_suffix + "_profile_selector",
             CONF_NAME: self.name + " Climate Profile Selector",
             CONF_OPTIONS: self.profile_options,
