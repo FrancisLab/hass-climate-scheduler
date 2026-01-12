@@ -41,7 +41,6 @@ from homeassistant.const import (
     STATE_ON,
 )
 from homeassistant.core import HomeAssistant
-from homeassistant.helpers import entity_registry
 from homeassistant.helpers.entity import Entity
 from homeassistant.helpers.entity_platform import EntityPlatform, async_get_platforms
 from homeassistant.helpers.event import (
@@ -187,10 +186,10 @@ class ClimateSchedulerSwitch(SwitchEntity, RestoreEntity):
             return
         input_select_platform: EntityPlatform = platforms[0]
 
-        selector_entity_id = await self._async_get_profile_selector_id()
-
         selector_config = {
-            CONF_ID: selector_entity_id,
+            # TODO: This results in a redundant input_select in the entity name, but fixing would require
+            # building a migration flow to maintain backwards compatibility. Leaving as is for now.
+            CONF_ID: "input_select." + self.entity_id_suffix + "_profile_selector",
             CONF_NAME: self.name + " Climate Profile Selector",
             CONF_OPTIONS: self.profile_options,
             CONF_ICON: "mdi:mdiFormSelect ",
@@ -198,7 +197,6 @@ class ClimateSchedulerSwitch(SwitchEntity, RestoreEntity):
         }
 
         self._profile_selector = InputSelect.from_yaml(selector_config)
-        self._profile_selector._attr_unique_id = selector_entity_id
         await input_select_platform.async_add_entities([self._profile_selector])
 
         # Subscribe for profile changes
@@ -378,19 +376,6 @@ class ClimateSchedulerSwitch(SwitchEntity, RestoreEntity):
 
         data = {ATTR_ENTITY_ID: entity, ATTR_SWING_MODE: swing_mode}
         await self._hass.services.async_call(CLIMATE_DOMAIN, SERVICE_SET_SWING_MODE, data)
-
-    async def _async_get_profile_selector_id(self) -> str:
-        """Determine whether to use legacy or modern naming for profile selector."""
-
-        legacy_suffix = f"input_select_{self.entity_id_suffix}_profile_selector"
-        legacy_id = f"{INPUT_SELECT_DOMAIN}.{legacy_suffix}"
-
-        registry = entity_registry.async_get(self._hass)
-        if registry.async_get(legacy_id):
-            _LOGGER.info(f"Found legacy entity {legacy_id}, using legacy naming scheme.")
-            return legacy_suffix
-
-        return self.entity_id_suffix + "_profile_selector"
 
 
 async def async_setup_platform(

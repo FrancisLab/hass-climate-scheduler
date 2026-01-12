@@ -107,7 +107,7 @@ async def test_setup_platform(hass: HomeAssistant, mock_climate_scheduler_config
     assert state.attributes.get("profile_options") == ["Default", "Weekend"]
 
     # Check input_select creation
-    input_select = hass.states.get("input_select.climate_scheduler_test_scheduler_profile_selector")
+    input_select = hass.states.get("input_select.input_select_climate_scheduler_test_scheduler_profile_selector")
     assert input_select is not None
     assert input_select.state == "Default"
 
@@ -194,7 +194,7 @@ async def test_switch_profile(hass: HomeAssistant, mock_climate_scheduler_config
             "input_select",
             "select_option",
             {
-                ATTR_ENTITY_ID: ("input_select.climate_scheduler_test_scheduler_profile_selector"),
+                ATTR_ENTITY_ID: ("input_select.input_select_climate_scheduler_test_scheduler_profile_selector"),
                 "option": "Weekend",
             },
             blocking=True,
@@ -225,7 +225,7 @@ async def test_time_change_trigger(hass: HomeAssistant, mock_climate_scheduler_c
         "input_select",
         "select_option",
         {
-            ATTR_ENTITY_ID: ("input_select.climate_scheduler_test_scheduler_profile_selector"),
+            ATTR_ENTITY_ID: ("input_select.input_select_climate_scheduler_test_scheduler_profile_selector"),
             "option": "Weekend",
         },
         blocking=True,
@@ -391,7 +391,7 @@ async def test_climate_attributes_set_for_heat_and_cool_modes(hass: HomeAssistan
         "input_select",
         "select_option",
         {
-            ATTR_ENTITY_ID: "input_select.climate_scheduler_temp_scheduler_profile_selector",
+            ATTR_ENTITY_ID: "input_select.input_select_climate_scheduler_temp_scheduler_profile_selector",
             "option": "CoolProfile",
         },
         blocking=True,
@@ -466,31 +466,3 @@ async def test_update_climate_entity_guards(hass: HomeAssistant, mock_climate_sc
         await hass.async_block_till_done()
 
     assert len(mock_set_hvac) == 0
-
-
-async def test_legacy_fallback_if_in_registry(hass: HomeAssistant, mock_climate_scheduler_config):
-    """Test that we fallback to legacy name if it exists in the registry."""
-    from homeassistant.helpers import entity_registry as er
-
-    registry = er.async_get(hass)
-
-    # Pre-create the legacy entity
-    legacy_suffix = "input_select_climate_scheduler_test_scheduler_profile_selector"
-
-    r = registry.async_get_or_create(
-        "input_select",
-        "input_select",
-        legacy_suffix,
-        suggested_object_id=legacy_suffix,
-    )
-    print(r.entity_id)
-
-    await async_setup_scheduler(hass, mock_climate_scheduler_config)
-
-    # Check that the component used the legacy ID
-    state = hass.states.get(f"input_select.{legacy_suffix}")
-    assert state is not None
-
-    # Check that the modern ID was NOT created/used
-    modern_id = "input_select.climate_scheduler_test_scheduler_profile_selector"
-    assert hass.states.get(modern_id) is None
