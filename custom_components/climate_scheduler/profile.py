@@ -23,9 +23,7 @@ PROFILES_SCHEMA = vol.Schema(
     [
         {
             vol.Required(CONF_PROFILE_ID): vol.All(cv.string),
-            vol.Optional(CONF_PROFILE_SCHEDULE, default=[]): vol.All(
-                SCHEDULE_SCHEMA, unique_schedule_times
-            ),
+            vol.Optional(CONF_PROFILE_SCHEDULE, default=[]): vol.All(SCHEDULE_SCHEMA, unique_schedule_times),
             vol.Optional(CONF_PROFILE_DEFAULT_HVAC_MODE): vol.All(cv.string, vol.In(HVAC_MODES)),
             vol.Optional(CONF_PROFILE_DEFAULT_FAN_MODE): cv.string,
             vol.Optional(CONF_PROFILE_DEFAULT_SWING_MODE): cv.string,
@@ -102,7 +100,5 @@ class ClimateSchedulerProfile:
             if index < len(self._schedules) - 1:
                 next_schedule = self._schedules[index + 1]
 
-            if time_of_day >= schedule.time and (
-                next_schedule is None or time_of_day < next_schedule.time
-            ):
+            if time_of_day >= schedule.time and (next_schedule is None or time_of_day < next_schedule.time):
                 return schedule

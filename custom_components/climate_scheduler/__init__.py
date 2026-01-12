@@ -13,15 +13,7 @@ DOMAIN = "climate_scheduler"
 
 
 CONFIG_SCHEMA = vol.Schema(
-    {
-        DOMAIN: vol.Schema(
-            {
-                vol.Optional(
-                    CONF_UPDATE_INTERVAL, default="00:15:00"
-                ): cv.positive_time_period
-            }
-        )
-    },
+    {DOMAIN: vol.Schema({vol.Optional(CONF_UPDATE_INTERVAL, default="00:15:00"): cv.positive_time_period})},
     extra=vol.ALLOW_EXTRA,
 )
 

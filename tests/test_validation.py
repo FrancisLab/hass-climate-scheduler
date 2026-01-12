@@ -21,9 +21,7 @@ from custom_components.climate_scheduler.validation import (
 
 
 def test_less_than_24h_valid():
-    assert less_than_24h(timedelta(hours=23, minutes=59)) == timedelta(
-        hours=23, minutes=59
-    )
+    assert less_than_24h(timedelta(hours=23, minutes=59)) == timedelta(hours=23, minutes=59)
     assert less_than_24h(timedelta(hours=0)) == timedelta(hours=0)
 
 
@@ -80,9 +78,7 @@ def test_schedule_schema_valid():
 def test_profiles_schema_valid():
     profile = {
         CONF_PROFILE_ID: "test",
-        CONF_PROFILE_SCHEDULE: [
-            {CONF_SCHEDULE_TIME: timedelta(hours=1), CONF_SCHEDULE_HVAC: HVACMode.HEAT}
-        ],
+        CONF_PROFILE_SCHEDULE: [{CONF_SCHEDULE_TIME: timedelta(hours=1), CONF_SCHEDULE_HVAC: HVACMode.HEAT}],
     }
     assert PROFILES_SCHEMA([profile]) == [profile]
 

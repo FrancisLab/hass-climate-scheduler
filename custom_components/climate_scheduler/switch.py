@@ -71,9 +71,7 @@ from .validation import unique_profiles
 PLATFORM_SCHEMA = vol.Schema(
     {
         vol.Required(CONF_PLATFORM): "climate_scheduler",
-        vol.Required(CONF_PROFILES): vol.All(
-            PROFILES_SCHEMA, unique_profiles, vol.Length(min=1)
-        ),
+        vol.Required(CONF_PROFILES): vol.All(PROFILES_SCHEMA, unique_profiles, vol.Length(min=1)),
         vol.Optional(CONF_NAME, default="Climate Scheduler"): cv.string,
         vol.Optional(CONF_DEFAULT_STATE, default=False): cv.boolean,
         vol.Optional(CONF_DEFAULT_PROFILE): cv.string,
@@ -104,9 +102,7 @@ class ClimateSchedulerSwitch(SwitchEntity, RestoreEntity):
 
         # Setup state
         self._state: str | None = None
-        self._default_state: str | None = (
-            STATE_ON if config.get(CONF_DEFAULT_STATE) else STATE_OFF
-        )
+        self._default_state: str | None = STATE_ON if config.get(CONF_DEFAULT_STATE) else STATE_OFF
 
         # Setup profiles
         self._profiles: dict[str, ClimateSchedulerProfile] = {
@@ -117,9 +113,7 @@ class ClimateSchedulerSwitch(SwitchEntity, RestoreEntity):
         # Setup default profile
         self._default_profile_id: str | None = config.get(CONF_DEFAULT_PROFILE)
         if self._default_profile_id not in self._profiles:
-            _LOGGER.info(
-                f"Ignoring invalid default profile id {self._default_profile_id}"
-            )
+            _LOGGER.info(f"Ignoring invalid default profile id {self._default_profile_id}")
             self._default_profile_id = None
 
         # Setup current profile
@@ -193,7 +187,7 @@ class ClimateSchedulerSwitch(SwitchEntity, RestoreEntity):
         input_select_platform: EntityPlatform = platforms[0]
 
         selector_config = {
-            CONF_ID: self.entity_id_suffix + "_profile_selector",
+            CONF_ID: "input_select." + self.entity_id_suffix + "_profile_selector",
             CONF_NAME: self.name + " Climate Profile Selector",
             CONF_OPTIONS: self.profile_options,
             CONF_ICON: "mdi:mdiFormSelect ",
@@ -321,18 +315,14 @@ class ClimateSchedulerSwitch(SwitchEntity, RestoreEntity):
         ]
         await asyncio.gather(*update_tasks)
 
-    async def _async_update_climate_entity(
-        self, entity: str, data: ComputedClimateData | None
-    ) -> None:
+    async def _async_update_climate_entity(self, entity: str, data: ComputedClimateData | None) -> None:
         if data is None:
             return
 
         await self._async_set_climate_hvac_mode(entity, data.hvac_mode)
         await self._async_set_climate_fan_mode(entity, data.fan_mode)
         await self._async_set_climate_swing_mode(entity, data.swing_mode)
-        await self._async_set_climate_temperature(
-            entity, data.hvac_mode, data.min_temp, data.max_temp
-        )
+        await self._async_set_climate_temperature(entity, data.hvac_mode, data.min_temp, data.max_temp)
 
     async def _async_set_climate_hvac_mode(
         self,
@@ -344,9 +334,7 @@ class ClimateSchedulerSwitch(SwitchEntity, RestoreEntity):
             return
 
         data = {ATTR_ENTITY_ID: entity, ATTR_HVAC_MODE: hvac_mode}
-        await self._hass.services.async_call(
-            CLIMATE_DOMAIN, SERVICE_SET_HVAC_MODE, data
-        )
+        await self._hass.services.async_call(CLIMATE_DOMAIN, SERVICE_SET_HVAC_MODE, data)
 
     async def _async_set_climate_temperature(
         self,
@@ -371,9 +359,7 @@ class ClimateSchedulerSwitch(SwitchEntity, RestoreEntity):
             data[ATTR_TARGET_TEMP_LOW] = min_temperature
             data[ATTR_TARGET_TEMP_HIGH] = max_temperature
 
-        await self._hass.services.async_call(
-            CLIMATE_DOMAIN, SERVICE_SET_TEMPERATURE, data
-        )
+        await self._hass.services.async_call(CLIMATE_DOMAIN, SERVICE_SET_TEMPERATURE, data)
 
     async def _async_set_climate_fan_mode(self, entity: str, fan_mode: str):
         if fan_mode is None:
@@ -387,9 +373,7 @@ class ClimateSchedulerSwitch(SwitchEntity, RestoreEntity):
             return
 
         data = {ATTR_ENTITY_ID: entity, ATTR_SWING_MODE: swing_mode}
-        await self._hass.services.async_call(
-            CLIMATE_DOMAIN, SERVICE_SET_SWING_MODE, data
-        )
+        await self._hass.services.async_call(CLIMATE_DOMAIN, SERVICE_SET_SWING_MODE, data)
 
 
 async def async_setup_platform(
