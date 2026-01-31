@@ -129,3 +129,8 @@ class ClimateSchedulerSchedule:
         # Handle wrap around (modulo 24h)
         total_seconds = final_time.total_seconds() % 86400
         return timedelta(seconds=total_seconds)
+
+    def __str__(self) -> str:
+        if self._time_entity_id:
+            return f"Dynamic: {self._time_entity_id} + {self._offset}"
+        return f"Static: {self._static_time} + {self._offset}"

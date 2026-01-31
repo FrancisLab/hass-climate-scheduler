@@ -251,6 +251,7 @@ class ClimateSchedulerSwitch(SwitchEntity, RestoreEntity):
             return
 
         self._current_profile = self._profiles.get(new_profile_id)
+        _LOGGER.debug(f"Profile updated to {new_profile_id}")
 
         self._update_schedule_trackers()
         await self.async_update_climate()
@@ -277,7 +278,7 @@ class ClimateSchedulerSwitch(SwitchEntity, RestoreEntity):
             self._schedule_tracker_remove_callbacks.append(
                 async_track_time_change(
                     self._hass,
-                    self.async_update_climate,
+                    self._async_on_schedule_time_trigger,
                     hour=schedule.seconds // 3600,
                     minute=schedule.seconds // 60 % 60,
                     second=schedule.seconds % 60,
@@ -296,9 +297,15 @@ class ClimateSchedulerSwitch(SwitchEntity, RestoreEntity):
 
     async def _async_on_time_entity_change(self, event):
         """Called when a time entity changes."""
+        _LOGGER.debug(f"Time entity changed: {event.data.get('entity_id')}")
         # When a time entity changes, we need to re-register the time trackers
         # because the schedule times have changed.
         self._update_schedule_trackers()
+        await self.async_update_climate()
+
+    async def _async_on_schedule_time_trigger(self, *args):
+        """Called when a schedule time is triggered."""
+        _LOGGER.debug(f"Schedule time trigger fired at {now()}")
         await self.async_update_climate()
 
     async def async_turn_on(self, **kwargs) -> None:

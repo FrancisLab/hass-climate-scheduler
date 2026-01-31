@@ -71,6 +71,13 @@ class ClimateSchedulerProfile:
         resolved_schedules = self._resolve_schedules(hass)
         schedule = self._find_schedule(time_of_day, resolved_schedules)
 
+        _LOGGER.debug(
+            "Computed climate for profile %s at %s. Using schedule: %s",
+            self._id,
+            time_of_day,
+            schedule,
+        )
+
         if schedule is None:
             return ComputedClimateData(
                 self._default_hvac_mode,
