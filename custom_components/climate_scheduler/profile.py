@@ -1,12 +1,14 @@
 """Profile class for Climate Scheduler."""
 
+import logging
 from datetime import timedelta
 
 import homeassistant.helpers.config_validation as cv
 import voluptuous as vol
 from homeassistant.components.climate import HVAC_MODES
+from homeassistant.core import HomeAssistant
 
-from .common import ComputedClimateData
+from .common import ComputedClimateData, ResolvedScheduleEntry
 from .const import (
     CONF_PROFILE_DEFAULT_FAN_MODE,
     CONF_PROFILE_DEFAULT_HVAC_MODE,
@@ -18,6 +20,8 @@ from .const import (
 )
 from .schedule import SCHEDULE_SCHEMA, ClimateSchedulerSchedule
 from .validation import unique_schedule_times
+
+_LOGGER = logging.getLogger(__name__)
 
 PROFILES_SCHEMA = vol.Schema(
     [
@@ -48,16 +52,25 @@ class ClimateSchedulerProfile:
         self._default_max_temp = config.get(CONF_PROFILE_DEFAULT_MAX_TEMP)
 
         self._schedules = [ClimateSchedulerSchedule(c) for c in config.get(CONF_PROFILE_SCHEDULE)]
-        self._schedules.sort(key=lambda x: x.time.total_seconds())
 
     @property
     def profile_id(self) -> str:
         """Return the profile ID."""
         return self._id
 
-    def compute_climate(self, time_of_day: timedelta) -> ComputedClimateData:
+    def get_time_entities(self) -> set[str]:
+        """Return a set of entity IDs used in this profile's schedules."""
+        entities = set()
+        for schedule in self._schedules:
+            if schedule.entity_id:
+                entities.add(schedule.entity_id)
+        return entities
+
+    def compute_climate(self, time_of_day: timedelta, hass: HomeAssistant) -> ComputedClimateData:
         """Compute the climate settings for a specific time of day."""
-        schedule = self._find_schedule(time_of_day)
+        resolved_schedules = self._resolve_schedules(hass)
+        schedule = self._find_schedule(time_of_day, resolved_schedules)
+
         if schedule is None:
             return ComputedClimateData(
                 self._default_hvac_mode,
@@ -75,30 +88,58 @@ class ClimateSchedulerProfile:
             schedule.max_temp if schedule.max_temp else self._default_max_temp,
         )
 
-    def get_trigger_times(self) -> list[timedelta]:
+    def get_trigger_times(self, hass: HomeAssistant) -> list[timedelta]:
         """Return a list of times when the schedule changes."""
-        return [s.time for s in self._schedules]
+        # Use a dict to deduplicate times, then return sorted list
+        # or just set
+        resolved = self._resolve_schedules(hass)
+        return sorted(list({entry.time for entry in resolved}))
 
-    def _find_schedule(self, time_of_day: timedelta) -> ClimateSchedulerSchedule | None:
-        if len(self._schedules) == 0:
+    def _resolve_schedules(self, hass: HomeAssistant) -> list[ResolvedScheduleEntry]:
+        """Resolve all schedules to static times and sort them."""
+        resolved_entries = []
+        for schedule in self._schedules:
+            time = schedule.resolve_time(hass)
+            if time is not None:
+                resolved_entries.append(ResolvedScheduleEntry(time, schedule))
+
+        resolved_entries.sort(key=lambda x: x.time.total_seconds())
+
+        # Check for collisions
+        if len(resolved_entries) > 1:
+            for i in range(len(resolved_entries) - 1):
+                if resolved_entries[i].time == resolved_entries[i + 1].time:
+                    _LOGGER.warning(
+                        "Collision detected in profile %s for time %s. Using the last defined schedule.",
+                        self._id,
+                        resolved_entries[i].time,
+                    )
+
+        return resolved_entries
+
+    def _find_schedule(
+        self, time_of_day: timedelta, resolved_schedules: list[ResolvedScheduleEntry]
+    ) -> ClimateSchedulerSchedule | None:
+        if len(resolved_schedules) == 0:
             return None
 
-        if len(self._schedules) == 1:
-            return self._schedules[0]
+        if len(resolved_schedules) == 1:
+            return resolved_schedules[0].schedule
 
         # If the current time is earlier than the first schedule, wrap around and
         # return the last schedule of the day
-        if time_of_day < self._schedules[0].time:
-            return self._schedules[-1]
+        if time_of_day < resolved_schedules[0].time:
+            return resolved_schedules[-1].schedule
 
-        for index, schedule in enumerate(self._schedules):
-            # Search for a schedule starting earlier than the current time of day
-            # which appears right before a schedule which starts later than the
-            # current time of the day or which is the last schedule of the day.
+        for index, entry in enumerate(resolved_schedules):
+            schedule = entry.schedule
+            schedule_time = entry.time
 
-            next_schedule = None
-            if index < len(self._schedules) - 1:
-                next_schedule = self._schedules[index + 1]
+            next_entry = None
+            if index < len(resolved_schedules) - 1:
+                next_entry = resolved_schedules[index + 1]
 
-            if time_of_day >= schedule.time and (next_schedule is None or time_of_day < next_schedule.time):
+            if time_of_day >= schedule_time and (next_entry is None or time_of_day < next_entry.time):
                 return schedule
+
+        return None

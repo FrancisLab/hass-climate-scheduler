@@ -128,6 +128,7 @@ class ClimateSchedulerSwitch(SwitchEntity, RestoreEntity):
             hass, self.async_update_climate, self._update_interval
         )
         self._schedule_tracker_remove_callbacks: list[Callable[[], None]] = []
+        self._entity_tracker_remove_callbacks: list[Callable[[], None]] = []
         self._update_schedule_trackers()
 
         logging.info(f"Initialized Climate Scheduler switch {self.entity_id}")
@@ -264,10 +265,15 @@ class ClimateSchedulerSwitch(SwitchEntity, RestoreEntity):
         # Clear any previous schedule trackers
         for remove_callback in self._schedule_tracker_remove_callbacks:
             remove_callback()
-
-        # Register new trackers
         self._schedule_tracker_remove_callbacks = []
-        for schedule in self._current_profile.get_trigger_times():
+
+        # Clear any previous entity trackers
+        for remove_callback in self._entity_tracker_remove_callbacks:
+            remove_callback()
+        self._entity_tracker_remove_callbacks = []
+
+        # Register new time trackers
+        for schedule in self._current_profile.get_trigger_times(self._hass):
             self._schedule_tracker_remove_callbacks.append(
                 async_track_time_change(
                     self._hass,
@@ -277,6 +283,23 @@ class ClimateSchedulerSwitch(SwitchEntity, RestoreEntity):
                     second=schedule.seconds % 60,
                 )
             )
+
+        # Register new entity trackers
+        for entity_id in self._current_profile.get_time_entities():
+            self._entity_tracker_remove_callbacks.append(
+                async_track_state_change_event(
+                    self._hass,
+                    [entity_id],
+                    self._async_on_time_entity_change,
+                )
+            )
+
+    async def _async_on_time_entity_change(self, event):
+        """Called when a time entity changes."""
+        # When a time entity changes, we need to re-register the time trackers
+        # because the schedule times have changed.
+        self._update_schedule_trackers()
+        await self.async_update_climate()
 
     async def async_turn_on(self, **kwargs) -> None:
         _LOGGER.info(self.entity_id + ": Turn on")
@@ -309,7 +332,7 @@ class ClimateSchedulerSwitch(SwitchEntity, RestoreEntity):
 
         dt = now()
         time_of_day = timedelta(hours=dt.hour, minutes=dt.minute, seconds=dt.second)
-        climate_data = self._current_profile.compute_climate(time_of_day)
+        climate_data = self._current_profile.compute_climate(time_of_day, self._hass)
 
         update_tasks = [
             asyncio.create_task(self._async_update_climate_entity(entity, climate_data))
