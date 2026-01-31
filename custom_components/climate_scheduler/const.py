@@ -22,6 +22,7 @@ CONF_SCHEDULE_MIN_TEMP = "min_temp"
 CONF_SCHEDULE_MAX_TEMP = "max_temp"
 CONF_SCHEDULE_FAN_MODE = "fan_mode"
 CONF_SCHEDULE_SWING_MODE = "swing_mode"
+CONF_SCHEDULE_OFFSET = "offset"
 
 ATTR_IS_ON = "is_on"
 ATTR_PROFILE = "current_profile"
