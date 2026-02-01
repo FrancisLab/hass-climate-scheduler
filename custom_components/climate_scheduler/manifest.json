@@ -4,8 +4,15 @@
   "version": "0.1.0",
   "documentation": "https://github.com/FrancisLab/hass-climate-scheduler",
   "issue_tracker": "https://github.com/FrancisLab/hass-climate-scheduler/issues",
-  "dependencies": ["input_select", "switch", "climate"],
-  "codeowners": ["@FrancisLab"],
+  "dependencies": [
+    "input_select",
+    "switch",
+    "climate",
+    "input_datetime"
+  ],
+  "codeowners": [
+    "@FrancisLab"
+  ],
   "config_flow": false,
-  "iot_class" : "calculated"
+  "iot_class": "calculated"
 }
