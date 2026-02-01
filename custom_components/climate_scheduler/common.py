@@ -1,5 +1,6 @@
 """Common data structures for Climate Scheduler."""
 
+import logging
 from collections import namedtuple
 from dataclasses import dataclass
 from datetime import timedelta
@@ -20,3 +21,11 @@ class ResolvedScheduleEntry:
 
     time: timedelta
     schedule: "ClimateSchedulerSchedule"
+
+
+class PrefixAdapter(logging.LoggerAdapter):
+    """Logger adapter to add a prefix to messages."""
+
+    def process(self, msg, kwargs):
+        """Process the message."""
+        return f"{self.extra['prefix']} {msg}", kwargs

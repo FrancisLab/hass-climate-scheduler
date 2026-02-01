@@ -52,7 +52,7 @@ from homeassistant.helpers.restore_state import RestoreEntity
 from homeassistant.util import slugify
 from homeassistant.util.dt import now
 
-from .common import ComputedClimateData
+from .common import ComputedClimateData, PrefixAdapter
 from .const import (
     ATTR_PROFILE,
     ATTR_PROFILE_OPTIONS,
@@ -104,9 +104,12 @@ class ClimateSchedulerSwitch(SwitchEntity, RestoreEntity):
         self._state: str | None = None
         self._default_state: str | None = STATE_ON if config.get(CONF_DEFAULT_STATE) else STATE_OFF
 
+        # Setup logger
+        self._logger = PrefixAdapter(_LOGGER, {"prefix": f"[{self.entity_id_suffix}]"})
+
         # Setup profiles
         self._profiles: dict[str, ClimateSchedulerProfile] = {
-            profile_conf[CONF_PROFILE_ID]: ClimateSchedulerProfile(profile_conf)
+            profile_conf[CONF_PROFILE_ID]: ClimateSchedulerProfile(profile_conf, self._logger)
             for profile_conf in config.get(CONF_PROFILES)
         }
 
@@ -242,16 +245,16 @@ class ClimateSchedulerSwitch(SwitchEntity, RestoreEntity):
         if new_state is None:
             return
 
-        _LOGGER.info(f"Profile selector changed to {new_state.state}")
+        self._logger.info(f"Profile selector changed to {new_state.state}")
         await self._async_update_profile(new_state.state)
 
     async def _async_update_profile(self, new_profile_id: str) -> None:
         if new_profile_id not in self._profiles:
-            logging.warning(f"Ignoring invalid profile with id={new_profile_id}")
+            self._logger.warning(f"Ignoring invalid profile with id={new_profile_id}")
             return
 
         self._current_profile = self._profiles.get(new_profile_id)
-        _LOGGER.debug(f"Profile updated to {new_profile_id}")
+        self._logger.debug(f"Profile updated to {new_profile_id}")
 
         self._update_schedule_trackers()
         await self.async_update_climate()
@@ -297,7 +300,7 @@ class ClimateSchedulerSwitch(SwitchEntity, RestoreEntity):
 
     async def _async_on_time_entity_change(self, event):
         """Called when a time entity changes."""
-        _LOGGER.debug(f"Time entity changed: {event.data.get('entity_id')}")
+        self._logger.debug(f"Time entity changed: {event.data.get('entity_id')}")
         # When a time entity changes, we need to re-register the time trackers
         # because the schedule times have changed.
         self._update_schedule_trackers()
@@ -305,32 +308,32 @@ class ClimateSchedulerSwitch(SwitchEntity, RestoreEntity):
 
     async def _async_on_schedule_time_trigger(self, *args):
         """Called when a schedule time is triggered."""
-        _LOGGER.debug(f"Schedule time trigger fired at {now()}")
+        self._logger.debug(f"Schedule time trigger fired at {now()}")
         await self.async_update_climate()
 
     async def async_turn_on(self, **kwargs) -> None:
-        _LOGGER.info(self.entity_id + ": Turn on")
+        self._logger.info("Turn on")
 
         self._state = STATE_ON
         await self.async_update_climate()
         self.async_schedule_update_ha_state()
 
     async def async_turn_off(self, **kwargs) -> None:
-        _LOGGER.info(self.entity_id + ": Turn off")
+        self._logger.info("Turn off")
 
         self._state = STATE_OFF
         self.async_schedule_update_ha_state()
 
     async def async_update_climate(self, *args, **kwargs) -> None:
         """Update all climate entities controlled by the swtich"""
-        _LOGGER.info(self.entity_id + ": Updating climate")
+        self._logger.info("Updating climate")
 
         if not self.is_on:
-            _LOGGER.info(self.entity_id + ": Disabled")
+            self._logger.info("Disabled")
             return
 
         if self._current_profile is None:
-            _LOGGER.info(self.entity_id + ": No profile")
+            self._logger.info("No profile")
             return
 
         # TODO: Track temperature of entities. Only heat/cool if under/above threshold
@@ -362,7 +365,7 @@ class ClimateSchedulerSwitch(SwitchEntity, RestoreEntity):
         hvac_mode: str,
     ):
         if hvac_mode is None:
-            _LOGGER.info(self.entity_id + ": No HVAC mode")
+            self._logger.info("No HVAC mode")
             return
 
         data = {ATTR_ENTITY_ID: entity, ATTR_HVAC_MODE: hvac_mode}

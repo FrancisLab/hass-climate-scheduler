@@ -43,8 +43,9 @@ SCHEDULE_SCHEMA = vol.Schema(
 class ClimateSchedulerSchedule:
     """Representation of a single schedule entry."""
 
-    def __init__(self, config: dict) -> None:
+    def __init__(self, config: dict, logger: logging.Logger = _LOGGER) -> None:
         """Initialize the schedule."""
+        self._logger = logger
         self._static_time: timedelta | None = None
         self._time_entity_id: str | None = None
         self._offset: timedelta = timedelta(0)
@@ -107,15 +108,15 @@ class ClimateSchedulerSchedule:
 
         if self._time_entity_id:
             state = hass.states.get(self._time_entity_id)
-            print(f"DEBUG: resolving {self._time_entity_id}, state found: {state}")
+            self._logger.debug(f"resolving {self._time_entity_id}, state found: {state}")
             if state is None:
-                _LOGGER.warning("Entity %s not found for schedule", self._time_entity_id)
+                self._logger.warning("Entity %s not found for schedule", self._time_entity_id)
                 return None
 
             # parse_time handles strings like "10:00:00"
             parsed = parse_time(state.state)
             if parsed is None:
-                _LOGGER.warning("Invalid time state %s for entity %s", state.state, self._time_entity_id)
+                self._logger.warning("Invalid time state %s for entity %s", state.state, self._time_entity_id)
                 return None
 
             base_time = timedelta(hours=parsed.hour, minutes=parsed.minute, seconds=parsed.second)

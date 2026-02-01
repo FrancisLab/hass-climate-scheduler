@@ -41,8 +41,9 @@ PROFILES_SCHEMA = vol.Schema(
 class ClimateSchedulerProfile:
     """Representation of a profile."""
 
-    def __init__(self, config: dict) -> None:
+    def __init__(self, config: dict, logger: logging.Logger = _LOGGER) -> None:
         """Initialize the profile."""
+        self._logger = logger
         self._id: str = config.get(CONF_PROFILE_ID)
 
         self._default_hvac_mode = config.get(CONF_PROFILE_DEFAULT_HVAC_MODE)
@@ -51,7 +52,7 @@ class ClimateSchedulerProfile:
         self._default_min_temp = config.get(CONF_PROFILE_DEFAULT_MIN_TEMP)
         self._default_max_temp = config.get(CONF_PROFILE_DEFAULT_MAX_TEMP)
 
-        self._schedules = [ClimateSchedulerSchedule(c) for c in config.get(CONF_PROFILE_SCHEDULE)]
+        self._schedules = [ClimateSchedulerSchedule(c, logger) for c in config.get(CONF_PROFILE_SCHEDULE)]
 
     @property
     def profile_id(self) -> str:
@@ -71,7 +72,7 @@ class ClimateSchedulerProfile:
         resolved_schedules = self._resolve_schedules(hass)
         schedule = self._find_schedule(time_of_day, resolved_schedules)
 
-        _LOGGER.debug(
+        self._logger.debug(
             "Computed climate for profile %s at %s. Using schedule: %s",
             self._id,
             time_of_day,
@@ -116,7 +117,7 @@ class ClimateSchedulerProfile:
         if len(resolved_entries) > 1:
             for i in range(len(resolved_entries) - 1):
                 if resolved_entries[i].time == resolved_entries[i + 1].time:
-                    _LOGGER.warning(
+                    self._logger.warning(
                         "Collision detected in profile %s for time %s. Using the last defined schedule.",
                         self._id,
                         resolved_entries[i].time,
