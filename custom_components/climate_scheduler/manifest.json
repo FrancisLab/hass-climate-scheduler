@@ -7,7 +7,9 @@
   "dependencies": [
     "input_select",
     "switch",
-    "climate",
+    "climate"
+  ],
+  "after_dependencies": [
     "input_datetime"
   ],
   "codeowners": [
