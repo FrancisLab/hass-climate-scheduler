@@ -193,6 +193,42 @@ async def test_time_entities_created_after_setup(hass: HomeAssistant, input_time
     assert mock_set_hvac[-1].data[ATTR_HVAC_MODE] == HVACMode.COOL
 
 
+async def test_input_datetime_helpers(hass: HomeAssistant, input_time_config, freezer):
+    """Test schedules with real input_datetime helpers, including one with a date."""
+    freezer.move_to(local_time(8))
+    mock_set_hvac = async_mock_service(hass, "climate", SERVICE_SET_HVAC_MODE)
+    mock_component(hass, "climate")
+    hass.states.async_set("climate.test_ac", HVACMode.OFF)
+    full_config = {
+        DOMAIN: {},
+        "input_datetime": {
+            "wake_up": {"has_time": True, "initial": "07:00:00"},
+            "sleep": {"has_date": True, "has_time": True, "initial": "2026-01-14 22:00:00"},
+        },
+        SWITCH_DOMAIN: [input_time_config],
+    }
+    assert await async_setup_component(hass, "input_datetime", full_config)
+    assert await async_setup_component(hass, DOMAIN, full_config)
+    assert await async_setup_component(hass, SWITCH_DOMAIN, full_config)
+    await hass.async_block_till_done()
+    await async_turn_on(hass)
+
+    assert mock_set_hvac[-1].data[ATTR_HVAC_MODE] == HVACMode.HEAT
+
+    # Sleep is 22:00 with a -30m offset, regardless of its date
+    freezer.move_to(local_time(21, 30))
+    async_fire_time_changed(hass)
+    await hass.async_block_till_done()
+    assert mock_set_hvac[-1].data[ATTR_HVAC_MODE] == HVACMode.COOL
+
+    # Changing the helper through its service is followed
+    await hass.services.async_call(
+        "input_datetime", "set_datetime", {ATTR_ENTITY_ID: "input_datetime.sleep", "time": "23:00:00"}, blocking=True
+    )
+    await hass.async_block_till_done()
+    assert mock_set_hvac[-1].data[ATTR_HVAC_MODE] == HVACMode.HEAT
+
+
 async def test_same_entity_with_different_offsets(hass: HomeAssistant, input_time_config, freezer):
     """Test that one entity can drive several schedules through offsets."""
     input_time_config[CONF_PROFILES][0][CONF_PROFILE_SCHEDULE] = [
