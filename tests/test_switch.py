@@ -1,3 +1,4 @@
+import logging
 from datetime import timedelta
 from unittest.mock import patch
 
@@ -25,7 +26,9 @@ from homeassistant.const import (
     STATE_OFF,
     STATE_ON,
 )
-from homeassistant.core import HomeAssistant, State
+from homeassistant.core import HomeAssistant, State, valid_entity_id
+from homeassistant.helpers import entity_registry as er
+from homeassistant.helpers.entity_platform import EntityPlatform, async_get_platforms
 from homeassistant.setup import async_setup_component
 from homeassistant.util import dt as dt_util
 from pytest_homeassistant_custom_component.common import (
@@ -154,6 +157,34 @@ async def test_restore_state(hass: HomeAssistant, mock_climate_scheduler_config)
     state = hass.states.get(entity_id)
     assert state.state == STATE_ON
     assert state.attributes.get(ATTR_PROFILE) == "Weekend"
+
+
+async def test_restore_state_off_with_profile(hass: HomeAssistant, mock_climate_scheduler_config):
+    """Test restoring a switch that was off, which used to fail before the profile selector existed."""
+    entity_id = "switch.climate_scheduler_test_scheduler"
+    mock_restore_cache(hass, [State(entity_id, STATE_OFF, attributes={ATTR_PROFILE: "Weekend"})])
+
+    await async_setup_scheduler(hass, mock_climate_scheduler_config)
+
+    state = hass.states.get(entity_id)
+    assert state.state == STATE_OFF
+    assert state.attributes.get(ATTR_PROFILE) == "Weekend"
+    selector = hass.states.get("input_select.input_select_climate_scheduler_test_scheduler_profile_selector")
+    assert selector.state == "Weekend"
+
+
+async def test_turn_on_without_climate_entities(hass: HomeAssistant, mock_climate_scheduler_config):
+    """Test that climate entities are optional."""
+    mock_set_hvac = async_mock_service(hass, "climate", SERVICE_SET_HVAC_MODE)
+    del mock_climate_scheduler_config[CONF_CLIMATE_ENTITIES]
+    await async_setup_scheduler(hass, mock_climate_scheduler_config)
+
+    entity_id = "switch.climate_scheduler_test_scheduler"
+    await hass.services.async_call(SWITCH_DOMAIN, SERVICE_TURN_ON, {ATTR_ENTITY_ID: entity_id}, blocking=True)
+    await hass.async_block_till_done()
+
+    assert hass.states.get(entity_id).state == STATE_ON
+    assert len(mock_set_hvac) == 0
 
 
 async def test_turn_on_updates_climate(hass: HomeAssistant, mock_climate_scheduler_config):
@@ -429,6 +460,71 @@ async def test_profile_selector_creation_fails_gracefully(hass: HomeAssistant, m
         # tracking it. Since we mocked it out, it won't be there.
         input_select = hass.states.get("input_select.input_select_climate_scheduler_test_scheduler_profile_selector")
         assert input_select is None
+
+
+async def test_profile_selector_entity_id(hass: HomeAssistant, mock_climate_scheduler_config):
+    """Test that the profile selector suggests a valid entity ID and keeps its unique ID."""
+    added_entities = []
+    original_add_entities = EntityPlatform.async_add_entities
+
+    async def async_add_entities(platform, entities, *args, **kwargs):
+        if platform.domain == "input_select":
+            added_entities.extend((entity.entity_id, entity.unique_id) for entity in entities)
+        await original_add_entities(platform, entities, *args, **kwargs)
+
+    with patch.object(EntityPlatform, "async_add_entities", async_add_entities):
+        await async_setup_scheduler(hass, mock_climate_scheduler_config)
+
+    selector_id = "input_select.input_select_climate_scheduler_test_scheduler_profile_selector"
+    unique_id = "input_select.climate_scheduler_test_scheduler_profile_selector"
+    assert added_entities == [(selector_id, unique_id)]
+    assert valid_entity_id(selector_id)
+    assert er.async_get(hass).async_get_entity_id("input_select", "input_select", unique_id) == selector_id
+
+
+async def test_profile_selector_keeps_registered_entity_id(hass: HomeAssistant, mock_climate_scheduler_config):
+    """Test that an existing, renamed profile selector keeps its entity ID."""
+    registry = er.async_get(hass)
+    registry.async_get_or_create(
+        "input_select",
+        "input_select",
+        "input_select.climate_scheduler_test_scheduler_profile_selector",
+        suggested_object_id="renamed_profile_selector",
+    )
+
+    await async_setup_scheduler(hass, mock_climate_scheduler_config)
+
+    assert hass.states.get("input_select.renamed_profile_selector") is not None
+    assert hass.states.get("input_select.input_select_climate_scheduler_test_scheduler_profile_selector") is None
+    assert len([e for e in registry.entities.values() if e.domain == "input_select"]) == 1
+
+
+async def test_profile_selector_not_added(hass: HomeAssistant, mock_climate_scheduler_config, caplog):
+    """Test that a switch whose profile selector fails to be added still restores and can be removed."""
+    entity_id = "switch.climate_scheduler_test_scheduler"
+    selector_id = "input_select.input_select_climate_scheduler_test_scheduler_profile_selector"
+    mock_restore_cache(hass, [State(entity_id, STATE_OFF, attributes={ATTR_PROFILE: "Weekend"})])
+
+    # The platform logs errors from adding entities instead of raising, leaving them without hass
+    original_add_entities = EntityPlatform.async_add_entities
+
+    async def async_add_entities(platform, entities, *args, **kwargs):
+        if platform.domain == "input_select":
+            return
+        await original_add_entities(platform, entities, *args, **kwargs)
+
+    with patch.object(EntityPlatform, "async_add_entities", async_add_entities):
+        await async_setup_scheduler(hass, mock_climate_scheduler_config)
+
+    assert hass.states.get(entity_id).attributes.get(ATTR_PROFILE) == "Weekend"
+    assert hass.states.get(selector_id) is None
+
+    platform = next(p for p in async_get_platforms(hass, DOMAIN) if p.domain == SWITCH_DOMAIN)
+    await platform.async_remove_entity(entity_id)
+    await hass.async_block_till_done()
+
+    assert hass.states.get(entity_id) is None
+    assert not [r for r in caplog.records if r.levelno >= logging.ERROR]
 
 
 async def test_update_climate_entity_guards(hass: HomeAssistant, mock_climate_scheduler_config):

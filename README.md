@@ -77,7 +77,7 @@ Profiles define when and how to configure climate entities. At least one must be
 
 **Schedules**
 
-A schedule is an optional list of times at which the target climate changes. If none are provided the scheduler will only set default values if any are presence. Having a single entry will cause the scheduler to set the desired values at all time. Having multiple entries will have the scheduler update climate entities at the specific time.
+A schedule is an optional list of times at which the target climate changes. If none are provided the scheduler will only set default values if any are presence. Having a single entry will cause the scheduler to set the desired values at all time. Having multiple entries will have the scheduler update climate entities at the specific time. Times must be unique within a profile, once offsets are applied. See [Adjusting Schedule Times via UI](#adjusting-schedule-times-via-ui) to set times from entities.
 
 ```yaml
     ...
@@ -95,14 +95,15 @@ A schedule is an optional list of times at which the target climate changes. If 
         min_temp: 17.5
 ```
 
-| Variable   | Description                                                  | Type                                | Default                                           |
-| ---------- | ------------------------------------------------------------ | ----------------------------------- | ------------------------------------------------- |
-| **time**   | Time where the climate must be updated                       | Required Time (HH:MM:SS) < 24:00:00 |                                                   |
-| hvac_mode  | HVAC mode to set at time                                     | Optional String                     | Default value from profile if any, otherwise none |
-| fan_mode   | Fan mode to set at time                                      | Optional String                     | Default value from profile if any, otherwise none |
-| swing_mode | Swing mode to set at time                                    | Optional String                     | Default value from profile if any, otherwise none |
-| min_temp   | Min temperature to set at time. Use with relevant HVAC modes | Optional Float                      | Default value from profile if any, otherwise none |
-| max_temp   | Max temperature to set at time. Use with relevant HVAC modes | Optional Float                      | Default value from profile if any, otherwise none |
+| Variable   | Description                                                                        | Type                                             | Default                                           |
+| ---------- | ---------------------------------------------------------------------------------- | ------------------------------------------------ | ------------------------------------------------- |
+| **time**   | Time where the climate must be updated, or an `input_datetime` or `time` entity    | Required Time (HH:MM:SS) < 24:00:00 or Entity ID |                                                   |
+| offset     | Time added to the schedule time. Can be negative (-HH:MM:SS). Useful with entities | Optional Time (HH:MM:SS) < 24:00:00              | 00:00:00                                          |
+| hvac_mode  | HVAC mode to set at time                                                           | Optional String                                  | Default value from profile if any, otherwise none |
+| fan_mode   | Fan mode to set at time                                                            | Optional String                                  | Default value from profile if any, otherwise none |
+| swing_mode | Swing mode to set at time                                                          | Optional String                                  | Default value from profile if any, otherwise none |
+| min_temp   | Min temperature to set at time. Use with relevant HVAC modes                       | Optional Float                                   | Default value from profile if any, otherwise none |
+| max_temp   | Max temperature to set at time. Use with relevant HVAC modes                       | Optional Float                                   | Default value from profile if any, otherwise none |
 
 ## Tips & Tricks
 
@@ -203,6 +204,37 @@ Single Schedule Entry:
           min_temp: 17
           max_temp: 27
 ```
+
+### Adjusting Schedule Times via UI
+
+Schedule times can be read from `input_datetime` helpers, or other `time` entities, to adjust them from the UI or automations without editing your configuration. The scheduler follows changes to these entities right away. Use an `offset` to change the climate before or after the time of an entity.
+
+Example using wake up and bedtime helpers, created in the UI or in `configuration.yaml`:
+
+```yaml
+input_datetime:
+  wake_up:
+    name: Wake Up
+    has_time: true
+  bedtime:
+    name: Bedtime
+    has_time: true
+```
+
+```yaml
+    ...
+    schedule:
+      # Heat 30 minutes before waking up
+      - time: input_datetime.wake_up
+        offset: "-00:30:00"
+        min_temp: 21
+      # Lower temperature at bedtime
+      - time: input_datetime.bedtime
+        min_temp: 17.5
+```
+
+- `input_datetime` helpers must have a time. Only the time of helpers with both a date and a time is used.
+- If an entity becomes unavailable, the scheduler keeps using its last known time. A schedule entry is ignored until its entity provides a time.
 
 ### Controlling Schedulers via UI
 
