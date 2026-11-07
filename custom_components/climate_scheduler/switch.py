@@ -132,6 +132,7 @@ class ClimateSchedulerSwitch(SwitchEntity, RestoreEntity):
         )
         self._schedule_tracker_remove_callbacks: list[Callable[[], None]] = []
         self._entity_tracker_remove_callback: Callable[[], None] | None = None
+        self._profile_tracker_remover: Callable[[], None] | None = None
         self._update_schedule_trackers()
 
         self._logger.info("Initialized Climate Scheduler switch %s", self.entity_id)
@@ -238,6 +239,21 @@ class ClimateSchedulerSwitch(SwitchEntity, RestoreEntity):
             )
 
         self.async_schedule_update_ha_state()
+
+    async def async_will_remove_from_hass(self) -> None:
+        """Call when entity is about to be removed from hass. Used to stop tracking time and entities."""
+        await super().async_will_remove_from_hass()
+
+        self._interval_tracker_remove_callbacks()
+        for remove_callback in self._schedule_tracker_remove_callbacks:
+            remove_callback()
+        self._schedule_tracker_remove_callbacks = []
+        if self._entity_tracker_remove_callback is not None:
+            self._entity_tracker_remove_callback()
+            self._entity_tracker_remove_callback = None
+        if self._profile_tracker_remover is not None:
+            self._profile_tracker_remover()
+            self._profile_tracker_remover = None
 
     async def _async_on_profile_selector_change(self, event) -> None:
         """Invoked when a different profile has been chosen via input select"""

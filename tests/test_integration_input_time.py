@@ -17,6 +17,7 @@ from homeassistant.const import (
     STATE_UNAVAILABLE,
 )
 from homeassistant.core import HomeAssistant
+from homeassistant.helpers.entity_platform import async_get_platforms
 from homeassistant.setup import async_setup_component
 from homeassistant.util import dt as dt_util
 from pytest_homeassistant_custom_component.common import (
@@ -251,6 +252,28 @@ async def test_attribute_only_change_is_ignored(hass: HomeAssistant, input_time_
 
     mock_set_hvac.clear()
     hass.states.async_set("input_datetime.wake_up", "07:00:00", {"editable": True})
+    await hass.async_block_till_done()
+
+    assert len(mock_set_hvac) == 0
+
+
+async def test_removed_switch_stops_tracking(hass: HomeAssistant, input_time_config, freezer):
+    """Test that a removed switch no longer reacts to time or time entity changes."""
+    freezer.move_to(local_time(8))
+    mock_set_hvac = async_mock_service(hass, "climate", SERVICE_SET_HVAC_MODE)
+    await async_setup_scheduler(hass, input_time_config)
+    await async_turn_on(hass)
+
+    platform = next(p for p in async_get_platforms(hass, DOMAIN) if p.domain == SWITCH_DOMAIN)
+    await platform.async_remove_entity(ENTITY_ID)
+    await hass.async_block_till_done()
+    mock_set_hvac.clear()
+
+    # Would change the active schedule, then trigger the new schedule time and the update interval
+    hass.states.async_set("input_datetime.wake_up", "09:00:00")
+    await hass.async_block_till_done()
+    freezer.move_to(local_time(9))
+    async_fire_time_changed(hass)
     await hass.async_block_till_done()
 
     assert len(mock_set_hvac) == 0
