@@ -126,14 +126,10 @@ class ClimateSchedulerSwitch(SwitchEntity, RestoreEntity):
             self.current_profile_id
         )
 
-        # Setup time trackers
-        self._interval_tracker_remove_callbacks = async_track_time_interval(
-            hass, self.async_update_climate, self._update_interval
-        )
+        # Trackers and profile selector are set up once added to hass
         self._schedule_tracker_remove_callbacks: list[Callable[[], None]] = []
         self._entity_tracker_remove_callback: Callable[[], None] | None = None
-        self._profile_tracker_remover: Callable[[], None] | None = None
-        self._update_schedule_trackers()
+        self._profile_selector: InputSelect | None = None
 
         self._logger.info("Initialized Climate Scheduler switch %s", self.entity_id)
 
@@ -201,20 +197,39 @@ class ClimateSchedulerSwitch(SwitchEntity, RestoreEntity):
             CONF_INITIAL: self.current_profile_id,
         }
 
-        self._profile_selector = InputSelect.from_yaml(selector_config)
-        await input_select_platform.async_add_entities([self._profile_selector])
+        selector = InputSelect.from_yaml(selector_config)
+        await input_select_platform.async_add_entities([selector])
+        if selector.hass is None:
+            # The platform logs why the selector couldn't be added
+            return
+        self._profile_selector = selector
+
+        # Remove the selector along with the switch, including when adding the switch is aborted
+        self.async_on_remove(lambda: self._hass.async_create_task(selector.async_remove()))
 
         # Subscribe for profile changes
-        self._profile_tracker_remover = async_track_state_change_event(
-            self._hass,
-            [self._profile_selector.entity_id],
-            self._async_on_profile_selector_change,
+        self.async_on_remove(
+            async_track_state_change_event(
+                self._hass,
+                [self._profile_selector.entity_id],
+                self._async_on_profile_selector_change,
+            )
         )
 
     async def async_added_to_hass(self):
-        """Call when entity about to be added to hass. Used to restore state."""
-        # If not None, we got an initial value.
+        """Call when entity about to be added to hass. Used to setup trackers and restore state."""
         await super().async_added_to_hass()
+
+        # Setup time trackers, removed along with the entity
+        self.async_on_remove(async_track_time_interval(self._hass, self.async_update_climate, self._update_interval))
+        self.async_on_remove(self._clear_time_trackers)
+        self.async_on_remove(self._clear_entity_tracker)
+        self._update_schedule_trackers()
+
+        # The profile selector must exist before restoring the profile
+        await self.async_create_profile_selector()
+
+        # If not None, we got an initial value.
         if self._state is not None:
             return
 
@@ -229,6 +244,8 @@ class ClimateSchedulerSwitch(SwitchEntity, RestoreEntity):
 
         if ATTR_PROFILE in previous_attributes:
             await self._async_update_profile(previous_attributes[ATTR_PROFILE])
+
+        if ATTR_PROFILE in previous_attributes and self._profile_selector is not None:
             await self._hass.services.async_call(
                 INPUT_SELECT_DOMAIN,
                 SERVICE_SELECT_OPTION,
@@ -239,21 +256,6 @@ class ClimateSchedulerSwitch(SwitchEntity, RestoreEntity):
             )
 
         self.async_schedule_update_ha_state()
-
-    async def async_will_remove_from_hass(self) -> None:
-        """Call when entity is about to be removed from hass. Used to stop tracking time and entities."""
-        await super().async_will_remove_from_hass()
-
-        self._interval_tracker_remove_callbacks()
-        for remove_callback in self._schedule_tracker_remove_callbacks:
-            remove_callback()
-        self._schedule_tracker_remove_callbacks = []
-        if self._entity_tracker_remove_callback is not None:
-            self._entity_tracker_remove_callback()
-            self._entity_tracker_remove_callback = None
-        if self._profile_tracker_remover is not None:
-            self._profile_tracker_remover()
-            self._profile_tracker_remover = None
 
     async def _async_on_profile_selector_change(self, event) -> None:
         """Invoked when a different profile has been chosen via input select"""
@@ -284,12 +286,8 @@ class ClimateSchedulerSwitch(SwitchEntity, RestoreEntity):
 
         self._update_time_trackers()
 
-        # Clear any previous entity tracker
-        if self._entity_tracker_remove_callback is not None:
-            self._entity_tracker_remove_callback()
-            self._entity_tracker_remove_callback = None
-
         # Register new entity tracker
+        self._clear_entity_tracker()
         time_entities = self._current_profile.get_time_entities()
         if time_entities:
             self._entity_tracker_remove_callback = async_track_state_change_event(
@@ -300,10 +298,7 @@ class ClimateSchedulerSwitch(SwitchEntity, RestoreEntity):
 
     def _update_time_trackers(self):
         """Re-resolve schedule times of the current profile and track them"""
-        # Clear any previous schedule trackers
-        for remove_callback in self._schedule_tracker_remove_callbacks:
-            remove_callback()
-        self._schedule_tracker_remove_callbacks = []
+        self._clear_time_trackers()
 
         # Register new time trackers
         self._current_profile.refresh(self._hass)
@@ -317,6 +312,16 @@ class ClimateSchedulerSwitch(SwitchEntity, RestoreEntity):
                     second=schedule.seconds % 60,
                 )
             )
+
+    def _clear_time_trackers(self):
+        for remove_callback in self._schedule_tracker_remove_callbacks:
+            remove_callback()
+        self._schedule_tracker_remove_callbacks = []
+
+    def _clear_entity_tracker(self):
+        if self._entity_tracker_remove_callback is not None:
+            self._entity_tracker_remove_callback()
+            self._entity_tracker_remove_callback = None
 
     async def _async_on_time_entity_change(self, event):
         """Called when a time entity changes."""
@@ -463,7 +468,5 @@ async def async_setup_platform(
 
     cs_switch = ClimateSchedulerSwitch(hass, cs, config)
     async_add_entities([cs_switch], True)
-
-    await cs_switch.async_create_profile_selector()
 
     return True

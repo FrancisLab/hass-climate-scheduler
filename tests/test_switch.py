@@ -1,3 +1,4 @@
+import logging
 from datetime import timedelta
 from unittest.mock import patch
 
@@ -26,6 +27,7 @@ from homeassistant.const import (
     STATE_ON,
 )
 from homeassistant.core import HomeAssistant, State
+from homeassistant.helpers.entity_platform import EntityPlatform, async_get_platforms
 from homeassistant.setup import async_setup_component
 from homeassistant.util import dt as dt_util
 from pytest_homeassistant_custom_component.common import (
@@ -154,6 +156,20 @@ async def test_restore_state(hass: HomeAssistant, mock_climate_scheduler_config)
     state = hass.states.get(entity_id)
     assert state.state == STATE_ON
     assert state.attributes.get(ATTR_PROFILE) == "Weekend"
+
+
+async def test_restore_state_off_with_profile(hass: HomeAssistant, mock_climate_scheduler_config):
+    """Test restoring a switch that was off, which used to fail before the profile selector existed."""
+    entity_id = "switch.climate_scheduler_test_scheduler"
+    mock_restore_cache(hass, [State(entity_id, STATE_OFF, attributes={ATTR_PROFILE: "Weekend"})])
+
+    await async_setup_scheduler(hass, mock_climate_scheduler_config)
+
+    state = hass.states.get(entity_id)
+    assert state.state == STATE_OFF
+    assert state.attributes.get(ATTR_PROFILE) == "Weekend"
+    selector = hass.states.get("input_select.input_select_climate_scheduler_test_scheduler_profile_selector")
+    assert selector.state == "Weekend"
 
 
 async def test_turn_on_updates_climate(hass: HomeAssistant, mock_climate_scheduler_config):
@@ -429,6 +445,34 @@ async def test_profile_selector_creation_fails_gracefully(hass: HomeAssistant, m
         # tracking it. Since we mocked it out, it won't be there.
         input_select = hass.states.get("input_select.input_select_climate_scheduler_test_scheduler_profile_selector")
         assert input_select is None
+
+
+async def test_profile_selector_not_added(hass: HomeAssistant, mock_climate_scheduler_config, caplog):
+    """Test that a switch whose profile selector fails to be added still restores and can be removed."""
+    entity_id = "switch.climate_scheduler_test_scheduler"
+    selector_id = "input_select.input_select_climate_scheduler_test_scheduler_profile_selector"
+    mock_restore_cache(hass, [State(entity_id, STATE_OFF, attributes={ATTR_PROFILE: "Weekend"})])
+
+    # The platform logs errors from adding entities instead of raising, leaving them without hass
+    original_add_entities = EntityPlatform.async_add_entities
+
+    async def async_add_entities(platform, entities, *args, **kwargs):
+        if platform.domain == "input_select":
+            return
+        await original_add_entities(platform, entities, *args, **kwargs)
+
+    with patch.object(EntityPlatform, "async_add_entities", async_add_entities):
+        await async_setup_scheduler(hass, mock_climate_scheduler_config)
+
+    assert hass.states.get(entity_id).attributes.get(ATTR_PROFILE) == "Weekend"
+    assert hass.states.get(selector_id) is None
+
+    platform = next(p for p in async_get_platforms(hass, DOMAIN) if p.domain == SWITCH_DOMAIN)
+    await platform.async_remove_entity(entity_id)
+    await hass.async_block_till_done()
+
+    assert hass.states.get(entity_id) is None
+    assert not [r for r in caplog.records if r.levelno >= logging.ERROR]
 
 
 async def test_update_climate_entity_guards(hass: HomeAssistant, mock_climate_scheduler_config):

@@ -292,12 +292,20 @@ async def test_removed_switch_stops_tracking(hass: HomeAssistant, input_time_con
     await async_setup_scheduler(hass, input_time_config)
     await async_turn_on(hass)
 
+    selector_id = "input_select.input_select_climate_scheduler_input_time_scheduler_profile_selector"
+    assert hass.states.get(selector_id) is not None
+
     platform = next(p for p in async_get_platforms(hass, DOMAIN) if p.domain == SWITCH_DOMAIN)
     await platform.async_remove_entity(ENTITY_ID)
     await hass.async_block_till_done()
     mock_set_hvac.clear()
 
-    # Would change the active schedule, then trigger the new schedule time and the update interval
+    # The profile selector is removed along with the switch, leaving its registry placeholder
+    assert hass.states.get(selector_id).state == STATE_UNAVAILABLE
+
+    # Would update the profile, change the active schedule, then trigger the new schedule time and the update interval
+    hass.states.async_set(selector_id, "Dynamic")
+    await hass.async_block_till_done()
     hass.states.async_set("input_datetime.wake_up", "09:00:00")
     await hass.async_block_till_done()
     freezer.move_to(local_time(9))
