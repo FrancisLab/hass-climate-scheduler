@@ -75,7 +75,7 @@ PLATFORM_SCHEMA = vol.Schema(
         vol.Optional(CONF_NAME, default="Climate Scheduler"): cv.string,
         vol.Optional(CONF_DEFAULT_STATE, default=False): cv.boolean,
         vol.Optional(CONF_DEFAULT_PROFILE): cv.string,
-        vol.Optional(CONF_CLIMATE_ENTITIES): cv.entity_ids,
+        vol.Optional(CONF_CLIMATE_ENTITIES, default=[]): cv.entity_ids,
     },
     extra=vol.ALLOW_EXTRA,
 )

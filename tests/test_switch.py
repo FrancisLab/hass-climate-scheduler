@@ -173,6 +173,20 @@ async def test_restore_state_off_with_profile(hass: HomeAssistant, mock_climate_
     assert selector.state == "Weekend"
 
 
+async def test_turn_on_without_climate_entities(hass: HomeAssistant, mock_climate_scheduler_config):
+    """Test that climate entities are optional."""
+    mock_set_hvac = async_mock_service(hass, "climate", SERVICE_SET_HVAC_MODE)
+    del mock_climate_scheduler_config[CONF_CLIMATE_ENTITIES]
+    await async_setup_scheduler(hass, mock_climate_scheduler_config)
+
+    entity_id = "switch.climate_scheduler_test_scheduler"
+    await hass.services.async_call(SWITCH_DOMAIN, SERVICE_TURN_ON, {ATTR_ENTITY_ID: entity_id}, blocking=True)
+    await hass.async_block_till_done()
+
+    assert hass.states.get(entity_id).state == STATE_ON
+    assert len(mock_set_hvac) == 0
+
+
 async def test_turn_on_updates_climate(hass: HomeAssistant, mock_climate_scheduler_config):
     await async_setup_scheduler(hass, mock_climate_scheduler_config)
     entity_id = "switch.climate_scheduler_test_scheduler"
