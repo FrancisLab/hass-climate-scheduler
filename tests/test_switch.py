@@ -26,7 +26,8 @@ from homeassistant.const import (
     STATE_OFF,
     STATE_ON,
 )
-from homeassistant.core import HomeAssistant, State
+from homeassistant.core import HomeAssistant, State, valid_entity_id
+from homeassistant.helpers import entity_registry as er
 from homeassistant.helpers.entity_platform import EntityPlatform, async_get_platforms
 from homeassistant.setup import async_setup_component
 from homeassistant.util import dt as dt_util
@@ -445,6 +446,43 @@ async def test_profile_selector_creation_fails_gracefully(hass: HomeAssistant, m
         # tracking it. Since we mocked it out, it won't be there.
         input_select = hass.states.get("input_select.input_select_climate_scheduler_test_scheduler_profile_selector")
         assert input_select is None
+
+
+async def test_profile_selector_entity_id(hass: HomeAssistant, mock_climate_scheduler_config):
+    """Test that the profile selector suggests a valid entity ID and keeps its unique ID."""
+    added_entities = []
+    original_add_entities = EntityPlatform.async_add_entities
+
+    async def async_add_entities(platform, entities, *args, **kwargs):
+        if platform.domain == "input_select":
+            added_entities.extend((entity.entity_id, entity.unique_id) for entity in entities)
+        await original_add_entities(platform, entities, *args, **kwargs)
+
+    with patch.object(EntityPlatform, "async_add_entities", async_add_entities):
+        await async_setup_scheduler(hass, mock_climate_scheduler_config)
+
+    selector_id = "input_select.input_select_climate_scheduler_test_scheduler_profile_selector"
+    unique_id = "input_select.climate_scheduler_test_scheduler_profile_selector"
+    assert added_entities == [(selector_id, unique_id)]
+    assert valid_entity_id(selector_id)
+    assert er.async_get(hass).async_get_entity_id("input_select", "input_select", unique_id) == selector_id
+
+
+async def test_profile_selector_keeps_registered_entity_id(hass: HomeAssistant, mock_climate_scheduler_config):
+    """Test that an existing, renamed profile selector keeps its entity ID."""
+    registry = er.async_get(hass)
+    registry.async_get_or_create(
+        "input_select",
+        "input_select",
+        "input_select.climate_scheduler_test_scheduler_profile_selector",
+        suggested_object_id="renamed_profile_selector",
+    )
+
+    await async_setup_scheduler(hass, mock_climate_scheduler_config)
+
+    assert hass.states.get("input_select.renamed_profile_selector") is not None
+    assert hass.states.get("input_select.input_select_climate_scheduler_test_scheduler_profile_selector") is None
+    assert len([e for e in registry.entities.values() if e.domain == "input_select"]) == 1
 
 
 async def test_profile_selector_not_added(hass: HomeAssistant, mock_climate_scheduler_config, caplog):

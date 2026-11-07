@@ -198,6 +198,8 @@ class ClimateSchedulerSwitch(SwitchEntity, RestoreEntity):
         }
 
         selector = InputSelect.from_yaml(selector_config)
+        # from_yaml derives an invalid entity ID from the ID above, suggest the one it has always been registered as
+        selector.entity_id = f"{INPUT_SELECT_DOMAIN}.input_select_{self.entity_id_suffix}_profile_selector"
         await input_select_platform.async_add_entities([selector])
         if selector.hass is None:
             # The platform logs why the selector couldn't be added
