@@ -145,6 +145,8 @@ class ClimateSchedulerSchedule:
         return timedelta(hours=parsed.hour, minutes=parsed.minute, seconds=parsed.second)
 
     def __str__(self) -> str:
+        # timedelta prints negative values as "-1 day, 23:30:00", so print the sign separately
+        sign = "-" if self._offset < timedelta(0) else "+"
         if self._time_entity_id:
-            return f"Dynamic: {self._time_entity_id} + {self._offset}"
-        return f"Static: {self._static_time} + {self._offset}"
+            return f"Dynamic: {self._time_entity_id} {sign} {abs(self._offset)}"
+        return f"Static: {self._static_time} {sign} {abs(self._offset)}"

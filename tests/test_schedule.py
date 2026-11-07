@@ -128,6 +128,24 @@ def test_unavailable_entity_without_last_known_time_returns_none(mock_hass):
     assert schedule.resolve_time(mock_hass) is None
 
 
+@pytest.mark.parametrize(
+    ("config", "expected"),
+    [
+        ({CONF_SCHEDULE_TIME: timedelta(hours=7)}, "Static: 7:00:00 + 0:00:00"),
+        (
+            {CONF_SCHEDULE_TIME: "input_datetime.test", CONF_SCHEDULE_OFFSET: timedelta(minutes=-30)},
+            "Dynamic: input_datetime.test - 0:30:00",
+        ),
+        (
+            {CONF_SCHEDULE_TIME: "input_datetime.test", CONF_SCHEDULE_OFFSET: timedelta(hours=1)},
+            "Dynamic: input_datetime.test + 1:00:00",
+        ),
+    ],
+)
+def test_str(config, expected):
+    assert str(ClimateSchedulerSchedule(config)) == expected
+
+
 def test_invalid_offset_validation():
     """Test that offsets greater than 24h are invalid."""
     import voluptuous as vol
