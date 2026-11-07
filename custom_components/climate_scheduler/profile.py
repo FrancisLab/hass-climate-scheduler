@@ -1,6 +1,7 @@
 """Profile class for Climate Scheduler."""
 
 import logging
+from dataclasses import dataclass
 from datetime import timedelta
 
 import homeassistant.helpers.config_validation as cv
@@ -8,7 +9,7 @@ import voluptuous as vol
 from homeassistant.components.climate import HVAC_MODES
 from homeassistant.core import HomeAssistant
 
-from .common import ComputedClimateData, ResolvedScheduleEntry
+from .common import ComputedClimateData
 from .const import (
     CONF_PROFILE_DEFAULT_FAN_MODE,
     CONF_PROFILE_DEFAULT_HVAC_MODE,
@@ -38,10 +39,18 @@ PROFILES_SCHEMA = vol.Schema(
 )
 
 
+@dataclass
+class ResolvedScheduleEntry:
+    """Entry with resolved time."""
+
+    time: timedelta
+    schedule: ClimateSchedulerSchedule
+
+
 class ClimateSchedulerProfile:
     """Representation of a profile."""
 
-    def __init__(self, config: dict, logger: logging.Logger = _LOGGER) -> None:
+    def __init__(self, config: dict, logger: logging.Logger | logging.LoggerAdapter = _LOGGER) -> None:
         """Initialize the profile."""
         self._logger = logger
         self._id: str = config.get(CONF_PROFILE_ID)
@@ -53,6 +62,7 @@ class ClimateSchedulerProfile:
         self._default_max_temp = config.get(CONF_PROFILE_DEFAULT_MAX_TEMP)
 
         self._schedules = [ClimateSchedulerSchedule(c, logger) for c in config.get(CONF_PROFILE_SCHEDULE)]
+        self._resolved_schedules: list[ResolvedScheduleEntry] = []
 
     @property
     def profile_id(self) -> str:
@@ -67,10 +77,9 @@ class ClimateSchedulerProfile:
                 entities.add(schedule.entity_id)
         return entities
 
-    def compute_climate(self, time_of_day: timedelta, hass: HomeAssistant) -> ComputedClimateData:
+    def compute_climate(self, time_of_day: timedelta) -> ComputedClimateData:
         """Compute the climate settings for a specific time of day."""
-        resolved_schedules = self._resolve_schedules(hass)
-        schedule = self._find_schedule(time_of_day, resolved_schedules)
+        schedule = self.get_active_schedule(time_of_day)
 
         self._logger.debug(
             "Computed climate for profile %s at %s. Using schedule: %s",
@@ -96,15 +105,15 @@ class ClimateSchedulerProfile:
             schedule.max_temp if schedule.max_temp else self._default_max_temp,
         )
 
-    def get_trigger_times(self, hass: HomeAssistant) -> list[timedelta]:
+    def get_trigger_times(self) -> list[timedelta]:
         """Return a list of times when the schedule changes."""
-        # Use a dict to deduplicate times, then return sorted list
-        # or just set
-        resolved = self._resolve_schedules(hass)
-        return sorted(list({entry.time for entry in resolved}))
+        return sorted({entry.time for entry in self._resolved_schedules})
 
-    def _resolve_schedules(self, hass: HomeAssistant) -> list[ResolvedScheduleEntry]:
-        """Resolve all schedules to static times and sort them."""
+    def refresh(self, hass: HomeAssistant) -> None:
+        """Resolve all schedules to static times and sort them.
+
+        Must be called before computing climate or trigger times, and again whenever a time entity changes.
+        """
         resolved_entries = []
         for schedule in self._schedules:
             time = schedule.resolve_time(hass)
@@ -114,20 +123,19 @@ class ClimateSchedulerProfile:
         resolved_entries.sort(key=lambda x: x.time.total_seconds())
 
         # Check for collisions
-        if len(resolved_entries) > 1:
-            for i in range(len(resolved_entries) - 1):
-                if resolved_entries[i].time == resolved_entries[i + 1].time:
-                    self._logger.warning(
-                        "Collision detected in profile %s for time %s. Using the last defined schedule.",
-                        self._id,
-                        resolved_entries[i].time,
-                    )
+        for current, following in zip(resolved_entries, resolved_entries[1:]):
+            if current.time == following.time:
+                self._logger.warning(
+                    "Collision detected in profile %s for time %s. Using the last defined schedule.",
+                    self._id,
+                    current.time,
+                )
 
-        return resolved_entries
+        self._resolved_schedules = resolved_entries
 
-    def _find_schedule(
-        self, time_of_day: timedelta, resolved_schedules: list[ResolvedScheduleEntry]
-    ) -> ClimateSchedulerSchedule | None:
+    def get_active_schedule(self, time_of_day: timedelta) -> ClimateSchedulerSchedule | None:
+        """Return the schedule in effect at a specific time of day, if any."""
+        resolved_schedules = self._resolved_schedules
         if len(resolved_schedules) == 0:
             return None
 
@@ -140,14 +148,13 @@ class ClimateSchedulerProfile:
             return resolved_schedules[-1].schedule
 
         for index, entry in enumerate(resolved_schedules):
-            schedule = entry.schedule
-            schedule_time = entry.time
+            # Search for a schedule starting earlier than the current time of day
+            # which appears right before a schedule which starts later than the
+            # current time of the day or which is the last schedule of the day.
 
             next_entry = None
             if index < len(resolved_schedules) - 1:
                 next_entry = resolved_schedules[index + 1]
 
-            if time_of_day >= schedule_time and (next_entry is None or time_of_day < next_entry.time):
-                return schedule
-
-        return None
+            if time_of_day >= entry.time and (next_entry is None or time_of_day < next_entry.time):
+                return entry.schedule

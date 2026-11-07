@@ -9,6 +9,7 @@ from custom_components.climate_scheduler.const import (
     CONF_PROFILE_SCHEDULE,
     CONF_SCHEDULE_HVAC,
     CONF_SCHEDULE_MIN_TEMP,
+    CONF_SCHEDULE_OFFSET,
     CONF_SCHEDULE_TIME,
 )
 from custom_components.climate_scheduler.profile import PROFILES_SCHEMA
@@ -64,6 +65,67 @@ def test_unique_schedule_times_invalid():
     ]
     with pytest.raises(vol.Invalid):
         unique_schedule_times(schedules)
+
+
+def test_unique_schedule_times_same_entity_different_offsets():
+    schedules = [
+        {CONF_SCHEDULE_TIME: "input_datetime.sleep", CONF_SCHEDULE_OFFSET: timedelta(minutes=-30)},
+        {CONF_SCHEDULE_TIME: "input_datetime.sleep"},
+    ]
+    assert unique_schedule_times(schedules) == schedules
+
+
+def test_unique_schedule_times_same_entity_same_offset():
+    schedules = [
+        {CONF_SCHEDULE_TIME: "input_datetime.sleep", CONF_SCHEDULE_OFFSET: timedelta(minutes=-30)},
+        {CONF_SCHEDULE_TIME: "input_datetime.sleep", CONF_SCHEDULE_OFFSET: timedelta(minutes=-30)},
+    ]
+    with pytest.raises(vol.Invalid):
+        unique_schedule_times(schedules)
+
+
+def test_unique_schedule_times_same_entity_offsets_wrapping_to_same_time():
+    schedules = [
+        {CONF_SCHEDULE_TIME: "input_datetime.sleep", CONF_SCHEDULE_OFFSET: timedelta(hours=-1)},
+        {CONF_SCHEDULE_TIME: "input_datetime.sleep", CONF_SCHEDULE_OFFSET: timedelta(hours=23)},
+    ]
+    with pytest.raises(vol.Invalid):
+        unique_schedule_times(schedules)
+
+
+def test_unique_schedule_times_compared_on_whole_seconds():
+    schedules = [
+        {CONF_SCHEDULE_TIME: "input_datetime.sleep", CONF_SCHEDULE_OFFSET: timedelta(seconds=0.5)},
+        {CONF_SCHEDULE_TIME: "input_datetime.sleep"},
+    ]
+    with pytest.raises(vol.Invalid):
+        unique_schedule_times(schedules)
+
+
+def test_unique_schedule_times_static_compared_with_offset():
+    schedules = [
+        {CONF_SCHEDULE_TIME: timedelta(hours=8)},
+        {CONF_SCHEDULE_TIME: timedelta(hours=7), CONF_SCHEDULE_OFFSET: timedelta(hours=1)},
+    ]
+    with pytest.raises(vol.Invalid):
+        unique_schedule_times(schedules)
+
+
+@pytest.mark.parametrize("time", ["24:00:00", "25:00:00"])
+def test_schedule_schema_rejects_times_over_24h(time):
+    with pytest.raises(vol.Invalid):
+        SCHEDULE_SCHEMA([{CONF_SCHEDULE_TIME: time}])
+
+
+@pytest.mark.parametrize("entity_id", ["input_datetime.wake_up", "time.alarm"])
+def test_schedule_schema_accepts_time_entities(entity_id):
+    assert SCHEDULE_SCHEMA([{CONF_SCHEDULE_TIME: entity_id}])[0][CONF_SCHEDULE_TIME] == entity_id
+
+
+@pytest.mark.parametrize("value", ["sensor.wake_up", "7:0o:00"])
+def test_schedule_schema_rejects_other_values(value):
+    with pytest.raises(vol.Invalid, match="Expected a time"):
+        SCHEDULE_SCHEMA([{CONF_SCHEDULE_TIME: value}])
 
 
 def test_schedule_schema_valid():

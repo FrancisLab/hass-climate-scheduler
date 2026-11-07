@@ -97,15 +97,15 @@ class ClimateSchedulerSwitch(SwitchEntity, RestoreEntity):
         # Simple configs
         self._name: str = config.get(CONF_NAME)
 
-        _LOGGER.info(f"Initializing Climate Scheduler switch {self.entity_id}")
+        # Setup logger
+        self._logger = PrefixAdapter(_LOGGER, {"prefix": f"[{self.entity_id_suffix}]"})
+
+        self._logger.info("Initializing Climate Scheduler switch %s", self.entity_id)
         self._climate_entities: list[str] = config.get(CONF_CLIMATE_ENTITIES)
 
         # Setup state
         self._state: str | None = None
         self._default_state: str | None = STATE_ON if config.get(CONF_DEFAULT_STATE) else STATE_OFF
-
-        # Setup logger
-        self._logger = PrefixAdapter(_LOGGER, {"prefix": f"[{self.entity_id_suffix}]"})
 
         # Setup profiles
         self._profiles: dict[str, ClimateSchedulerProfile] = {
@@ -116,7 +116,7 @@ class ClimateSchedulerSwitch(SwitchEntity, RestoreEntity):
         # Setup default profile
         self._default_profile_id: str | None = config.get(CONF_DEFAULT_PROFILE)
         if self._default_profile_id not in self._profiles:
-            _LOGGER.info(f"Ignoring invalid default profile id {self._default_profile_id}")
+            self._logger.info("Ignoring invalid default profile id %s", self._default_profile_id)
             self._default_profile_id = None
 
         # Setup current profile
@@ -131,10 +131,10 @@ class ClimateSchedulerSwitch(SwitchEntity, RestoreEntity):
             hass, self.async_update_climate, self._update_interval
         )
         self._schedule_tracker_remove_callbacks: list[Callable[[], None]] = []
-        self._entity_tracker_remove_callbacks: list[Callable[[], None]] = []
+        self._entity_tracker_remove_callback: Callable[[], None] | None = None
         self._update_schedule_trackers()
 
-        logging.info(f"Initialized Climate Scheduler switch {self.entity_id}")
+        self._logger.info("Initialized Climate Scheduler switch %s", self.entity_id)
 
     @property
     def entity_id(self) -> str:
@@ -186,7 +186,7 @@ class ClimateSchedulerSwitch(SwitchEntity, RestoreEntity):
 
         platforms = async_get_platforms(self._hass, INPUT_SELECT_DOMAIN)
         if len(platforms) == 0:
-            logging.error("No input select platform, not adding selectors")
+            self._logger.error("No input select platform, not adding selectors")
             return
         input_select_platform: EntityPlatform = platforms[0]
 
@@ -245,16 +245,16 @@ class ClimateSchedulerSwitch(SwitchEntity, RestoreEntity):
         if new_state is None:
             return
 
-        self._logger.info(f"Profile selector changed to {new_state.state}")
+        self._logger.info("Profile selector changed to %s", new_state.state)
         await self._async_update_profile(new_state.state)
 
     async def _async_update_profile(self, new_profile_id: str) -> None:
         if new_profile_id not in self._profiles:
-            self._logger.warning(f"Ignoring invalid profile with id={new_profile_id}")
+            self._logger.warning("Ignoring invalid profile with id=%s", new_profile_id)
             return
 
         self._current_profile = self._profiles.get(new_profile_id)
-        self._logger.debug(f"Profile updated to {new_profile_id}")
+        self._logger.debug("Profile updated to %s", new_profile_id)
 
         self._update_schedule_trackers()
         await self.async_update_climate()
@@ -262,22 +262,36 @@ class ClimateSchedulerSwitch(SwitchEntity, RestoreEntity):
         self.async_schedule_update_ha_state()
 
     def _update_schedule_trackers(self):
-        """Update time intervals and schedule times tracked by the scheduler"""
+        """Update time intervals, schedule times and time entities tracked by the scheduler"""
         if self._current_profile is None:
             return
 
+        self._update_time_trackers()
+
+        # Clear any previous entity tracker
+        if self._entity_tracker_remove_callback is not None:
+            self._entity_tracker_remove_callback()
+            self._entity_tracker_remove_callback = None
+
+        # Register new entity tracker
+        time_entities = self._current_profile.get_time_entities()
+        if time_entities:
+            self._entity_tracker_remove_callback = async_track_state_change_event(
+                self._hass,
+                list(time_entities),
+                self._async_on_time_entity_change,
+            )
+
+    def _update_time_trackers(self):
+        """Re-resolve schedule times of the current profile and track them"""
         # Clear any previous schedule trackers
         for remove_callback in self._schedule_tracker_remove_callbacks:
             remove_callback()
         self._schedule_tracker_remove_callbacks = []
 
-        # Clear any previous entity trackers
-        for remove_callback in self._entity_tracker_remove_callbacks:
-            remove_callback()
-        self._entity_tracker_remove_callbacks = []
-
         # Register new time trackers
-        for schedule in self._current_profile.get_trigger_times(self._hass):
+        self._current_profile.refresh(self._hass)
+        for schedule in self._current_profile.get_trigger_times():
             self._schedule_tracker_remove_callbacks.append(
                 async_track_time_change(
                     self._hass,
@@ -288,27 +302,33 @@ class ClimateSchedulerSwitch(SwitchEntity, RestoreEntity):
                 )
             )
 
-        # Register new entity trackers
-        for entity_id in self._current_profile.get_time_entities():
-            self._entity_tracker_remove_callbacks.append(
-                async_track_state_change_event(
-                    self._hass,
-                    [entity_id],
-                    self._async_on_time_entity_change,
-                )
-            )
-
     async def _async_on_time_entity_change(self, event):
         """Called when a time entity changes."""
-        self._logger.debug(f"Time entity changed: {event.data.get('entity_id')}")
-        # When a time entity changes, we need to re-register the time trackers
-        # because the schedule times have changed.
-        self._update_schedule_trackers()
-        await self.async_update_climate()
+        old_state = event.data.get("old_state")
+        new_state = event.data.get("new_state")
+
+        # Schedule times only depend on the state, ignore attribute-only changes
+        if old_state is not None and new_state is not None and old_state.state == new_state.state:
+            return
+
+        self._logger.debug(
+            "Time entity %s changed to %s",
+            event.data.get("entity_id"),
+            new_state.state if new_state is not None else None,
+        )
+
+        # The schedule times may have changed, re-register the time trackers
+        time_of_day = self._time_of_day()
+        previous_schedule = self._current_profile.get_active_schedule(time_of_day)
+        self._update_time_trackers()
+
+        # Only update the climate if the active schedule changed, to avoid overriding manual changes
+        if self._current_profile.get_active_schedule(time_of_day) is not previous_schedule:
+            await self.async_update_climate()
 
     async def _async_on_schedule_time_trigger(self, *args):
         """Called when a schedule time is triggered."""
-        self._logger.debug(f"Schedule time trigger fired at {now()}")
+        self._logger.debug("Schedule time trigger fired at %s", now())
         await self.async_update_climate()
 
     async def async_turn_on(self, **kwargs) -> None:
@@ -340,15 +360,17 @@ class ClimateSchedulerSwitch(SwitchEntity, RestoreEntity):
         # TODO: Allow specifying a desired idle mode (e.g. fan-only for allergies,
         # forest fire, etc.)
 
-        dt = now()
-        time_of_day = timedelta(hours=dt.hour, minutes=dt.minute, seconds=dt.second)
-        climate_data = self._current_profile.compute_climate(time_of_day, self._hass)
+        climate_data = self._current_profile.compute_climate(self._time_of_day())
 
         update_tasks = [
             asyncio.create_task(self._async_update_climate_entity(entity, climate_data))
             for entity in self._climate_entities
         ]
         await asyncio.gather(*update_tasks)
+
+    def _time_of_day(self) -> timedelta:
+        dt = now()
+        return timedelta(hours=dt.hour, minutes=dt.minute, seconds=dt.second)
 
     async def _async_update_climate_entity(self, entity: str, data: ComputedClimateData | None) -> None:
         if data is None:

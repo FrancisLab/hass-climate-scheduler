@@ -1,7 +1,6 @@
 """Integration tests for input_time support."""
 
-from datetime import timedelta
-from unittest.mock import patch
+from datetime import datetime, timedelta
 
 import pytest
 from homeassistant.components.climate import (
@@ -15,6 +14,7 @@ from homeassistant.const import (
     CONF_NAME,
     CONF_PLATFORM,
     SERVICE_TURN_ON,
+    STATE_UNAVAILABLE,
 )
 from homeassistant.core import HomeAssistant
 from homeassistant.setup import async_setup_component
@@ -35,6 +35,8 @@ from custom_components.climate_scheduler.const import (
     CONF_SCHEDULE_OFFSET,
     CONF_SCHEDULE_TIME,
 )
+
+ENTITY_ID = "switch.climate_scheduler_input_time_scheduler"
 
 
 @pytest.fixture
@@ -62,6 +64,11 @@ def input_time_config():
     }
 
 
+def local_time(hour: int, minute: int = 0, second: int = 0) -> datetime:
+    """Return a datetime on a fixed day, in the test instance's time zone."""
+    return datetime(2026, 1, 15, hour, minute, second, tzinfo=dt_util.get_default_time_zone())
+
+
 async def async_setup_scheduler(hass, config):
     # Mock climate entity
     mock_component(hass, "climate")
@@ -78,93 +85,172 @@ async def async_setup_scheduler(hass, config):
     await hass.async_block_till_done()
 
 
-async def test_input_time_initial_state(hass: HomeAssistant, input_time_config):
-    """Test initial state based on input times."""
-    mock_set_hvac = async_mock_service(hass, "climate", SERVICE_SET_HVAC_MODE)
-    await async_setup_scheduler(hass, input_time_config)
-    entity_id = "switch.climate_scheduler_input_time_scheduler"
-
-    # Turn On
-    await hass.services.async_call(SWITCH_DOMAIN, SERVICE_TURN_ON, {ATTR_ENTITY_ID: entity_id}, blocking=True)
+async def async_turn_on(hass):
+    await hass.services.async_call(SWITCH_DOMAIN, SERVICE_TURN_ON, {ATTR_ENTITY_ID: ENTITY_ID}, blocking=True)
     await hass.async_block_till_done()
 
-    # Time: 08:00 (After wake up 07:00) -> HEAT
-    target_time = dt_util.now().replace(hour=8, minute=0, second=0, microsecond=0)
-    with patch("custom_components.climate_scheduler.switch.now", return_value=target_time):
-        async_fire_time_changed(hass, target_time)
-        await hass.async_block_till_done()
 
+async def test_input_time_initial_state(hass: HomeAssistant, input_time_config, freezer):
+    """Test initial state based on input times."""
+    freezer.move_to(local_time(8))
+    mock_set_hvac = async_mock_service(hass, "climate", SERVICE_SET_HVAC_MODE)
+    await async_setup_scheduler(hass, input_time_config)
+
+    await async_turn_on(hass)
+
+    # 08:00 is after wake up (07:00) -> HEAT
     assert mock_set_hvac[-1].data[ATTR_HVAC_MODE] == HVACMode.HEAT
 
 
-async def test_input_time_entity_update(hass: HomeAssistant, input_time_config):
+async def test_input_time_entity_update(hass: HomeAssistant, input_time_config, freezer):
     """Test response to input_datetime entity changes."""
+    freezer.move_to(local_time(8))
     mock_set_hvac = async_mock_service(hass, "climate", SERVICE_SET_HVAC_MODE)
     await async_setup_scheduler(hass, input_time_config)
-    entity_id = "switch.climate_scheduler_input_time_scheduler"
-    await hass.services.async_call(SWITCH_DOMAIN, SERVICE_TURN_ON, {ATTR_ENTITY_ID: entity_id}, blocking=True)
-    await hass.async_block_till_done()
+    await async_turn_on(hass)
+    assert mock_set_hvac[-1].data[ATTR_HVAC_MODE] == HVACMode.HEAT
 
-    # Initial state check logic omitted for brevity, assuming initial setup is correct
-    target_time = dt_util.now().replace(hour=8, minute=0, second=0, microsecond=0)
-
-    # Change wake_up time to 09:00 (so 08:00 is now BEFORE wake up, likely wrapping to previous day's sleep schedule)
-    # Sleep is 22:00 - 30m = 21:30.
-    # So 08:00 is between 21:30 (yesterday) and 09:00. Should be COOL.
+    # Moving wake up to 09:00 puts 08:00 between sleep - 30m (21:30, yesterday) and wake up -> COOL
     mock_set_hvac.clear()
-
-    # We must ensure 'now' is still 08:00 when the update triggers
-    with patch("custom_components.climate_scheduler.switch.now", return_value=target_time):
-        hass.states.async_set("input_datetime.wake_up", "09:00:00")
-        await hass.async_block_till_done()
+    hass.states.async_set("input_datetime.wake_up", "09:00:00")
+    await hass.async_block_till_done()
 
     assert len(mock_set_hvac) > 0, "Update not triggered on entity change"
     assert mock_set_hvac[-1].data[ATTR_HVAC_MODE] == HVACMode.COOL
 
-
-async def test_input_time_schedule_trigger(hass: HomeAssistant, input_time_config):
-    """Test that schedules trigger at dynamic times."""
-    mock_set_hvac = async_mock_service(hass, "climate", SERVICE_SET_HVAC_MODE)
-    await async_setup_scheduler(hass, input_time_config)
-    entity_id = "switch.climate_scheduler_input_time_scheduler"
-    await hass.services.async_call(SWITCH_DOMAIN, SERVICE_TURN_ON, {ATTR_ENTITY_ID: entity_id}, blocking=True)
+    # The new wake up time is tracked
+    freezer.move_to(local_time(9))
+    async_fire_time_changed(hass)
     await hass.async_block_till_done()
 
-    # Move time to 09:00:00. This assumes wake_up is default 07:00 unless we change it.
-    # Wait, the config fixture sets it to 07:00 initially.
-    # Let's verify trigger at 07:00:00
-    target_time = dt_util.now().replace(hour=7, minute=0, second=0, microsecond=0)
+    assert mock_set_hvac[-1].data[ATTR_HVAC_MODE] == HVACMode.HEAT
+
+
+async def test_input_time_schedule_trigger(hass: HomeAssistant, input_time_config, freezer):
+    """Test that schedules trigger at dynamic times."""
+    freezer.move_to(local_time(6, 59, 59))
+    mock_set_hvac = async_mock_service(hass, "climate", SERVICE_SET_HVAC_MODE)
+    await async_setup_scheduler(hass, input_time_config)
+    await async_turn_on(hass)
+
+    # Before wake up, wraps around to sleep -> COOL
+    assert mock_set_hvac[-1].data[ATTR_HVAC_MODE] == HVACMode.COOL
 
     mock_set_hvac.clear()
-    with patch("custom_components.climate_scheduler.switch.now", return_value=target_time):
-        async_fire_time_changed(hass, target_time, fire_all=True)
-        await hass.async_block_till_done()
+    freezer.move_to(local_time(7))
+    async_fire_time_changed(hass)
+    await hass.async_block_till_done()
 
     assert len(mock_set_hvac) > 0, "Update not triggered on schedule time"
     assert mock_set_hvac[-1].data[ATTR_HVAC_MODE] == HVACMode.HEAT
 
 
-async def test_offset_handling(hass: HomeAssistant, input_time_config):
+async def test_offset_handling(hass: HomeAssistant, input_time_config, freezer):
+    """Test that offsets shift the schedule time."""
+    # Sleep is 22:00 with a -30m offset, so the COOL schedule starts at 21:30
+    freezer.move_to(local_time(21, 29, 59))
     mock_set_hvac = async_mock_service(hass, "climate", SERVICE_SET_HVAC_MODE)
-
     await async_setup_scheduler(hass, input_time_config)
-    entity_id = "switch.climate_scheduler_input_time_scheduler"
-    await hass.services.async_call(SWITCH_DOMAIN, SERVICE_TURN_ON, {ATTR_ENTITY_ID: entity_id}, blocking=True)
-    await hass.async_block_till_done()
-
-    # Sleep is 22:00. with -30m offset = 21:30.
-    # At 21:29 -> HEAT (from wake up, presumably)
-    target_time = dt_util.now().replace(hour=21, minute=29, second=0, microsecond=0)
-    with patch("custom_components.climate_scheduler.switch.now", return_value=target_time):
-        async_fire_time_changed(hass, target_time)
-        await hass.async_block_till_done()
+    await async_turn_on(hass)
 
     assert mock_set_hvac[-1].data[ATTR_HVAC_MODE] == HVACMode.HEAT
 
-    # At 21:31 -> COOL
-    target_time_2 = dt_util.now().replace(hour=21, minute=31, second=0, microsecond=0)
-    with patch("custom_components.climate_scheduler.switch.now", return_value=target_time_2):
-        async_fire_time_changed(hass, target_time_2)
-        await hass.async_block_till_done()
+    mock_set_hvac.clear()
+    freezer.move_to(local_time(21, 30))
+    async_fire_time_changed(hass)
+    await hass.async_block_till_done()
+
+    assert len(mock_set_hvac) > 0, "Update not triggered on offset schedule time"
+    assert mock_set_hvac[-1].data[ATTR_HVAC_MODE] == HVACMode.COOL
+
+
+async def test_same_entity_with_different_offsets(hass: HomeAssistant, input_time_config, freezer):
+    """Test that one entity can drive several schedules through offsets."""
+    input_time_config[CONF_PROFILES][0][CONF_PROFILE_SCHEDULE] = [
+        {
+            CONF_SCHEDULE_TIME: "input_datetime.wake_up",
+            CONF_SCHEDULE_OFFSET: "-01:00:00",
+            CONF_SCHEDULE_HVAC: HVACMode.HEAT,
+        },
+        {
+            CONF_SCHEDULE_TIME: "input_datetime.wake_up",
+            CONF_SCHEDULE_OFFSET: "01:00:00",
+            CONF_SCHEDULE_HVAC: HVACMode.COOL,
+        },
+    ]
+    freezer.move_to(local_time(7, 30))
+    mock_set_hvac = async_mock_service(hass, "climate", SERVICE_SET_HVAC_MODE)
+    await async_setup_scheduler(hass, input_time_config)
+    await async_turn_on(hass)
+
+    # Wake up is 07:00: HEAT from 06:00, COOL from 08:00
+    assert mock_set_hvac[-1].data[ATTR_HVAC_MODE] == HVACMode.HEAT
+
+    freezer.move_to(local_time(8))
+    async_fire_time_changed(hass)
+    await hass.async_block_till_done()
 
     assert mock_set_hvac[-1].data[ATTR_HVAC_MODE] == HVACMode.COOL
+
+
+async def test_unavailable_entity_keeps_last_known_time(hass: HomeAssistant, input_time_config, freezer):
+    """Test that an entity going unavailable doesn't drop its schedule."""
+    freezer.move_to(local_time(8))
+    mock_set_hvac = async_mock_service(hass, "climate", SERVICE_SET_HVAC_MODE)
+    await async_setup_scheduler(hass, input_time_config)
+    await async_turn_on(hass)
+    assert mock_set_hvac[-1].data[ATTR_HVAC_MODE] == HVACMode.HEAT
+
+    # Without the wake up schedule, only COOL would remain and be applied
+    mock_set_hvac.clear()
+    hass.states.async_set("input_datetime.wake_up", STATE_UNAVAILABLE)
+    await hass.async_block_till_done()
+
+    assert len(mock_set_hvac) == 0
+
+    # The schedule still triggers at the last known time
+    freezer.move_to(local_time(21, 30))
+    async_fire_time_changed(hass)
+    await hass.async_block_till_done()
+    assert mock_set_hvac[-1].data[ATTR_HVAC_MODE] == HVACMode.COOL
+
+    freezer.move_to(local_time(7, 0) + timedelta(days=1))
+    async_fire_time_changed(hass)
+    await hass.async_block_till_done()
+    assert mock_set_hvac[-1].data[ATTR_HVAC_MODE] == HVACMode.HEAT
+
+
+async def test_entity_change_without_schedule_change_is_ignored(hass: HomeAssistant, input_time_config, freezer):
+    """Test that moving a time entity doesn't push climate updates unless the active schedule changes."""
+    freezer.move_to(local_time(14))
+    mock_set_hvac = async_mock_service(hass, "climate", SERVICE_SET_HVAC_MODE)
+    await async_setup_scheduler(hass, input_time_config)
+    await async_turn_on(hass)
+    assert mock_set_hvac[-1].data[ATTR_HVAC_MODE] == HVACMode.HEAT
+
+    # Still HEAT at 14:00, so nothing to apply
+    mock_set_hvac.clear()
+    hass.states.async_set("input_datetime.wake_up", "07:30:00")
+    await hass.async_block_till_done()
+
+    assert len(mock_set_hvac) == 0
+
+    # The new wake up time is still tracked
+    freezer.move_to(local_time(7, 30) + timedelta(days=1))
+    async_fire_time_changed(hass)
+    await hass.async_block_till_done()
+    assert mock_set_hvac[-1].data[ATTR_HVAC_MODE] == HVACMode.HEAT
+
+
+async def test_attribute_only_change_is_ignored(hass: HomeAssistant, input_time_config, freezer):
+    """Test that attribute-only changes of a time entity don't push climate updates."""
+    freezer.move_to(local_time(8))
+    mock_set_hvac = async_mock_service(hass, "climate", SERVICE_SET_HVAC_MODE)
+    await async_setup_scheduler(hass, input_time_config)
+    await async_turn_on(hass)
+
+    mock_set_hvac.clear()
+    hass.states.async_set("input_datetime.wake_up", "07:00:00", {"editable": True})
+    await hass.async_block_till_done()
+
+    assert len(mock_set_hvac) == 0
