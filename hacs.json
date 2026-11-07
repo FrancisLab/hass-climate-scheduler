@@ -1,5 +1,4 @@
 {
   "name": "Climate Scheduler",
-  "homeassistant": "2026.1.0",
-  "persistent_directory": "userfiles"
+  "homeassistant": "2026.1.0"
 }
