@@ -25,6 +25,7 @@ from homeassistant.const import (
     SERVICE_TURN_ON,
     STATE_OFF,
     STATE_ON,
+    STATE_UNAVAILABLE,
 )
 from homeassistant.core import CoreState, HomeAssistant, State, valid_entity_id
 from homeassistant.helpers import entity_registry as er
@@ -86,9 +87,10 @@ def mock_climate_scheduler_config():
 
 
 async def async_setup_scheduler(hass, config):
-    # Mock climate entity
+    # Mock climate entities
     mock_component(hass, "climate")
-    hass.states.async_set("climate.test_ac", HVACMode.OFF)
+    for climate_entity in config.get(CONF_CLIMATE_ENTITIES, []):
+        hass.states.async_set(climate_entity, HVACMode.OFF)
 
     full_config = {DOMAIN: {}, SWITCH_DOMAIN: [config]}
 
@@ -243,6 +245,23 @@ async def test_no_climate_update_after_removed_before_started(hass: HomeAssistan
     await hass.async_block_till_done()
 
     assert len(mock_set_hvac) == 0
+
+
+async def test_skip_unavailable_climate_entities(hass: HomeAssistant, mock_climate_scheduler_config, caplog):
+    """Test that missing and unavailable climate entities are skipped with a warning."""
+    mock_set_hvac = async_mock_service(hass, "climate", SERVICE_SET_HVAC_MODE)
+    mock_climate_scheduler_config[CONF_CLIMATE_ENTITIES] = ["climate.test_ac", "climate.offline", "climate.missing"]
+    await async_setup_scheduler(hass, mock_climate_scheduler_config)
+    hass.states.async_set("climate.offline", STATE_UNAVAILABLE)
+    hass.states.async_remove("climate.missing")
+
+    entity_id = "switch.climate_scheduler_test_scheduler"
+    await hass.services.async_call(SWITCH_DOMAIN, SERVICE_TURN_ON, {ATTR_ENTITY_ID: entity_id}, blocking=True)
+    await hass.async_block_till_done()
+
+    assert [call.data[ATTR_ENTITY_ID] for call in mock_set_hvac] == ["climate.test_ac"]
+    assert "Skipping unavailable entity climate.offline" in caplog.text
+    assert "Skipping missing entity climate.missing" in caplog.text
 
 
 async def test_turn_on_without_climate_entities(hass: HomeAssistant, mock_climate_scheduler_config):

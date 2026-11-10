@@ -37,6 +37,7 @@ from homeassistant.const import (
     CONF_PLATFORM,
     STATE_OFF,
     STATE_ON,
+    STATE_UNAVAILABLE,
 )
 from homeassistant.core import CoreState, HomeAssistant
 from homeassistant.helpers.entity import Entity
@@ -409,6 +410,11 @@ class ClimateSchedulerSwitch(SwitchEntity, RestoreEntity):
 
     async def _async_update_climate_entity(self, entity: str, data: ComputedClimateData | None) -> None:
         if data is None:
+            return
+
+        state = self._hass.states.get(entity)
+        if state is None or state.state == STATE_UNAVAILABLE:
+            self._logger.warning("Skipping %s entity %s", "missing" if state is None else state.state, entity)
             return
 
         await self._async_set_climate_hvac_mode(entity, data.hvac_mode)
