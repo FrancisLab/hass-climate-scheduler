@@ -227,6 +227,22 @@ async def test_restore_state_after_started_updates_climate_once(hass: HomeAssist
     assert len(mock_set_temp) == 1
 
 
+async def test_default_state_on_updates_climate_once_started(hass: HomeAssistant, mock_climate_scheduler_config):
+    """Test that a switch on by default, with nothing to restore, also updates the climate once started."""
+    mock_set_hvac = async_mock_service(hass, "climate", SERVICE_SET_HVAC_MODE)
+    mock_climate_scheduler_config[CONF_DEFAULT_STATE] = True
+
+    hass.set_state(CoreState.not_running)
+    await async_setup_scheduler(hass, mock_climate_scheduler_config)
+    assert len(mock_set_hvac) == 0
+
+    await hass.async_start()
+    await hass.async_block_till_done()
+
+    assert len(mock_set_hvac) == 1
+    assert mock_set_hvac[0].data[ATTR_HVAC_MODE] == HVACMode.HEAT
+
+
 async def test_no_climate_update_after_removed_before_started(hass: HomeAssistant, mock_climate_scheduler_config):
     """Test that a switch removed before Home Assistant has started doesn't update the climate once it has."""
     mock_set_hvac = async_mock_service(hass, "climate", SERVICE_SET_HVAC_MODE)
