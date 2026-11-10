@@ -26,7 +26,7 @@ from homeassistant.const import (
     STATE_OFF,
     STATE_ON,
 )
-from homeassistant.core import HomeAssistant, State, valid_entity_id
+from homeassistant.core import CoreState, HomeAssistant, State, valid_entity_id
 from homeassistant.helpers import entity_registry as er
 from homeassistant.helpers.entity_platform import EntityPlatform, async_get_platforms
 from homeassistant.setup import async_setup_component
@@ -134,7 +134,7 @@ async def test_ignore_invalid_default_profile(hass: HomeAssistant, mock_climate_
 
 
 async def test_restore_state(hass: HomeAssistant, mock_climate_scheduler_config):
-    # We need to mock services because restoring state triggers an immediate update
+    # We need to mock services because Home Assistant has already started, which triggers an immediate update
     async_mock_service(hass, "climate", SERVICE_SET_HVAC_MODE)
     async_mock_service(hass, "climate", SERVICE_SET_TEMPERATURE)
     async_mock_service(hass, "climate", SERVICE_SET_FAN_MODE)
@@ -171,6 +171,78 @@ async def test_restore_state_off_with_profile(hass: HomeAssistant, mock_climate_
     assert state.attributes.get(ATTR_PROFILE) == "Weekend"
     selector = hass.states.get("input_select.input_select_climate_scheduler_test_scheduler_profile_selector")
     assert selector.state == "Weekend"
+
+
+async def test_no_climate_update_before_started(hass: HomeAssistant, mock_climate_scheduler_config):
+    """Test that a restored switch only updates the climate, once, after Home Assistant has started."""
+    mock_set_hvac = async_mock_service(hass, "climate", SERVICE_SET_HVAC_MODE)
+    mock_set_temp = async_mock_service(hass, "climate", SERVICE_SET_TEMPERATURE)
+
+    entity_id = "switch.climate_scheduler_test_scheduler"
+    mock_restore_cache(hass, [State(entity_id, STATE_ON, attributes={ATTR_PROFILE: "Weekend"})])
+
+    hass.set_state(CoreState.not_running)
+    await async_setup_scheduler(hass, mock_climate_scheduler_config)
+
+    # Restored, including the selector, without touching the climate
+    state = hass.states.get(entity_id)
+    assert state.state == STATE_ON
+    assert state.attributes.get(ATTR_PROFILE) == "Weekend"
+    selector = hass.states.get("input_select.input_select_climate_scheduler_test_scheduler_profile_selector")
+    assert selector.state == "Weekend"
+    assert len(mock_set_hvac) == 0
+    assert len(mock_set_temp) == 0
+
+    # Updates while starting are skipped too
+    hass.set_state(CoreState.starting)
+    await hass.services.async_call(SWITCH_DOMAIN, SERVICE_TURN_ON, {ATTR_ENTITY_ID: entity_id}, blocking=True)
+    await hass.async_block_till_done()
+    assert len(mock_set_hvac) == 0
+
+    hass.set_state(CoreState.not_running)
+    await hass.async_start()
+    await hass.async_block_till_done()
+
+    # The Weekend profile is applied exactly once
+    assert len(mock_set_hvac) == 1
+    assert mock_set_hvac[0].data[ATTR_HVAC_MODE] == HVACMode.COOL
+    assert len(mock_set_temp) == 1
+    assert mock_set_temp[0].data[ATTR_TEMPERATURE] == 20.0
+
+
+async def test_restore_state_after_started_updates_climate_once(hass: HomeAssistant, mock_climate_scheduler_config):
+    """Test that a switch restored after Home Assistant has started updates the climate right away, once."""
+    mock_set_hvac = async_mock_service(hass, "climate", SERVICE_SET_HVAC_MODE)
+    mock_set_temp = async_mock_service(hass, "climate", SERVICE_SET_TEMPERATURE)
+
+    entity_id = "switch.climate_scheduler_test_scheduler"
+    mock_restore_cache(hass, [State(entity_id, STATE_ON, attributes={ATTR_PROFILE: "Weekend"})])
+
+    await async_setup_scheduler(hass, mock_climate_scheduler_config)
+
+    assert len(mock_set_hvac) == 1
+    assert mock_set_hvac[0].data[ATTR_HVAC_MODE] == HVACMode.COOL
+    assert len(mock_set_temp) == 1
+
+
+async def test_no_climate_update_after_removed_before_started(hass: HomeAssistant, mock_climate_scheduler_config):
+    """Test that a switch removed before Home Assistant has started doesn't update the climate once it has."""
+    mock_set_hvac = async_mock_service(hass, "climate", SERVICE_SET_HVAC_MODE)
+
+    entity_id = "switch.climate_scheduler_test_scheduler"
+    mock_restore_cache(hass, [State(entity_id, STATE_ON, attributes={ATTR_PROFILE: "Weekend"})])
+
+    hass.set_state(CoreState.not_running)
+    await async_setup_scheduler(hass, mock_climate_scheduler_config)
+
+    platform = next(p for p in async_get_platforms(hass, DOMAIN) if p.domain == SWITCH_DOMAIN)
+    await platform.async_remove_entity(entity_id)
+    await hass.async_block_till_done()
+
+    await hass.async_start()
+    await hass.async_block_till_done()
+
+    assert len(mock_set_hvac) == 0
 
 
 async def test_turn_on_without_climate_entities(hass: HomeAssistant, mock_climate_scheduler_config):
