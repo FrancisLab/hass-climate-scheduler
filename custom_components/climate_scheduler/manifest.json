@@ -16,5 +16,5 @@
   "documentation": "https://github.com/FrancisLab/hass-climate-scheduler",
   "iot_class": "calculated",
   "issue_tracker": "https://github.com/FrancisLab/hass-climate-scheduler/issues",
-  "version": "0.2.0"
+  "version": "0.2.1"
 }

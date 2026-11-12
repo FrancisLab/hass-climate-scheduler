@@ -30,17 +30,16 @@ from homeassistant.components.input_select import DOMAIN as INPUT_SELECT_DOMAIN
 from homeassistant.components.switch import SwitchEntity
 from homeassistant.const import (
     ATTR_ENTITY_ID,
-    ATTR_OPTION,
     ATTR_TEMPERATURE,
     CONF_ICON,
     CONF_ID,
     CONF_NAME,
     CONF_PLATFORM,
-    SERVICE_SELECT_OPTION,
     STATE_OFF,
     STATE_ON,
+    STATE_UNAVAILABLE,
 )
-from homeassistant.core import HomeAssistant
+from homeassistant.core import CoreState, HomeAssistant
 from homeassistant.helpers.entity import Entity
 from homeassistant.helpers.entity_platform import EntityPlatform, async_get_platforms
 from homeassistant.helpers.event import (
@@ -49,6 +48,7 @@ from homeassistant.helpers.event import (
     async_track_time_interval,
 )
 from homeassistant.helpers.restore_state import RestoreEntity
+from homeassistant.helpers.start import async_at_started
 from homeassistant.util import slugify
 from homeassistant.util.dt import now
 
@@ -228,9 +228,15 @@ class ClimateSchedulerSwitch(SwitchEntity, RestoreEntity):
         self.async_on_remove(self._clear_entity_tracker)
         self._update_schedule_trackers()
 
-        # The profile selector must exist before restoring the profile
+        # Restore the profile before creating the profile selector, so the selector starts on it
+        await self._async_restore_state()
         await self.async_create_profile_selector()
 
+        # Climate entities may not be available until Home Assistant has started, apply the climate once it has
+        self.async_on_remove(async_at_started(self._hass, self._async_on_started))
+
+    async def _async_restore_state(self) -> None:
+        """Restore the state and profile, without updating the climate."""
         # If not None, we got an initial value.
         if self._state is not None:
             return
@@ -245,19 +251,14 @@ class ClimateSchedulerSwitch(SwitchEntity, RestoreEntity):
             self._state = previous_state.state
 
         if ATTR_PROFILE in previous_attributes:
-            await self._async_update_profile(previous_attributes[ATTR_PROFILE])
-
-        if ATTR_PROFILE in previous_attributes and self._profile_selector is not None:
-            await self._hass.services.async_call(
-                INPUT_SELECT_DOMAIN,
-                SERVICE_SELECT_OPTION,
-                {
-                    ATTR_ENTITY_ID: self._profile_selector.entity_id,
-                    ATTR_OPTION: self.current_profile_id,
-                },
-            )
+            self._set_profile(previous_attributes[ATTR_PROFILE])
 
         self.async_schedule_update_ha_state()
+
+    async def _async_on_started(self, hass: HomeAssistant) -> None:
+        """Called once Home Assistant has started, or right away if it already has."""
+        self._logger.debug("Home Assistant started")
+        await self.async_update_climate()
 
     async def _async_on_profile_selector_change(self, event) -> None:
         """Invoked when a different profile has been chosen via input select"""
@@ -269,17 +270,24 @@ class ClimateSchedulerSwitch(SwitchEntity, RestoreEntity):
         await self._async_update_profile(new_state.state)
 
     async def _async_update_profile(self, new_profile_id: str) -> None:
+        if not self._set_profile(new_profile_id):
+            return
+
+        await self.async_update_climate()
+
+        self.async_schedule_update_ha_state()
+
+    def _set_profile(self, new_profile_id: str) -> bool:
+        """Set the current profile and track its schedules. Return whether the profile is valid."""
         if new_profile_id not in self._profiles:
             self._logger.warning("Ignoring invalid profile with id=%s", new_profile_id)
-            return
+            return False
 
         self._current_profile = self._profiles.get(new_profile_id)
         self._logger.debug("Profile updated to %s", new_profile_id)
 
         self._update_schedule_trackers()
-        await self.async_update_climate()
-
-        self.async_schedule_update_ha_state()
+        return True
 
     def _update_schedule_trackers(self):
         """Update time intervals, schedule times and time entities tracked by the scheduler"""
@@ -371,6 +379,11 @@ class ClimateSchedulerSwitch(SwitchEntity, RestoreEntity):
         """Update all climate entities controlled by the swtich"""
         self._logger.info("Updating climate")
 
+        if self._hass.state is not CoreState.running:
+            # Not hass.is_running, which is already true while integrations are still starting
+            self._logger.info("Waiting for Home Assistant to start")
+            return
+
         if not self.is_on:
             self._logger.info("Disabled")
             return
@@ -397,6 +410,11 @@ class ClimateSchedulerSwitch(SwitchEntity, RestoreEntity):
 
     async def _async_update_climate_entity(self, entity: str, data: ComputedClimateData | None) -> None:
         if data is None:
+            return
+
+        state = self._hass.states.get(entity)
+        if state is None or state.state == STATE_UNAVAILABLE:
+            self._logger.warning("Skipping %s entity %s", "missing" if state is None else state.state, entity)
             return
 
         await self._async_set_climate_hvac_mode(entity, data.hvac_mode)
